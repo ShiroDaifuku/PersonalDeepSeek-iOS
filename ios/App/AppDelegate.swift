@@ -12,11 +12,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Task { await PushRegistration.shared.uploadDeviceToken(deviceToken) }
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         [.banner, .sound, .badge]
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
         if let taskID = (info["task_id"] ?? info["taskId"]) as? String { UserDefaults.standard.set(taskID, forKey: "pendingTaskID") }
         if let conversationID = (info["conversation_id"] ?? info["conversationId"]) as? String { UserDefaults.standard.set(conversationID, forKey: "pendingConversationID") }

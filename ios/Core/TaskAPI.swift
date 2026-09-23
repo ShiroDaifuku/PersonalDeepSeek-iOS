@@ -28,9 +28,17 @@ final class TaskAPI: Sendable {
     func delete(_ task: RemoteTask) async throws { _ = try await request("v1/tasks/\(task.id)", method: "DELETE", data: nil) }
     func runs(_ task: RemoteTask) async throws -> [RemoteTaskRun] { try await call("v1/tasks/\(task.id)/runs", method: "GET", as: RunsEnvelope.self).runs }
     func markRead(taskID: String, runID: String) async throws { _ = try await request("v1/tasks/\(taskID)/runs/\(runID)", method: "PATCH", data: try JSONSerialization.data(withJSONObject: ["read": true])) }
-    private func call<T: Decodable>(_ path: String, method: String, body: [String: Any]? = nil, as type: T.Type) async throws -> T { try await decode(request(path, method: method, data: body.map { try! JSONSerialization.data(withJSONObject: $0) }), type) }
-    private func call<T: Decodable, E: Encodable>(_ path: String, method: String, encodable: E, as type: T.Type) async throws -> T { try await decode(request(path, method: method, data: try JSONEncoder().encode(encodable)), type) }
-    private func decode<T: Decodable>(_ operation: @autoclosure () async throws -> (Data, URLResponse), _ type: T.Type) async throws -> T { let (data, _) = try await operation(); return try JSONDecoder().decode(type, from: data) }
+    private func call<T: Decodable>(_ path: String, method: String, body: [String: Any]? = nil, as type: T.Type) async throws -> T {
+        let data = try body.map { try JSONSerialization.data(withJSONObject: $0) }
+        return try decode(try await request(path, method: method, data: data), as: type)
+    }
+    private func call<T: Decodable, E: Encodable>(_ path: String, method: String, encodable: E, as type: T.Type) async throws -> T {
+        let data = try JSONEncoder().encode(encodable)
+        return try decode(try await request(path, method: method, data: data), as: type)
+    }
+    private func decode<T: Decodable>(_ response: (Data, URLResponse), as type: T.Type) throws -> T {
+        try JSONDecoder().decode(type, from: response.0)
+    }
     private func request(_ path: String, method: String, data: Data?) async throws -> (Data, URLResponse) {
         var request = URLRequest(url: base.appending(path: path)); request.httpMethod = method; request.setValue(userID, forHTTPHeaderField: "X-User-ID"); request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = data
         if let token = KeychainStore.readProxyToken(), !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }

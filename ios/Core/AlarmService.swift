@@ -35,7 +35,7 @@ enum AlarmScheduleParser {
             let days: [Int]
             if fields[4] == "*" { days = Array(1...7) }
             else {
-                let parsed = fields[4].split(separator: ",").compactMap(Int.init)
+                let parsed = fields[4].split(separator: ",").compactMap { Int($0) }
                 guard parsed.count == fields[4].split(separator: ",").count, parsed.allSatisfy({ (0...6).contains($0) }) else { return nil }
                 days = parsed.map { $0 == 0 ? 1 : $0 + 1 }
             }
@@ -56,7 +56,7 @@ final class DeviceAlarmService {
 
     func schedule(_ descriptor: AlarmDescriptor) async throws {
         #if canImport(AlarmKit)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.1, *) {
             let state = try await AlarmManager.shared.requestAuthorization()
             guard state == .authorized else { throw DeviceAlarmError.unauthorized }
             let schedule: Alarm.Schedule
