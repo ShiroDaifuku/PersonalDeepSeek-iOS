@@ -16,12 +16,14 @@ final class LiveActivityManager {
 
     func update(detail: String, progress: Double) async {
         let state = DeepSeekActivityAttributes.ContentState(phase: "running", detail: detail, progress: min(max(progress, 0), 1))
-        await activity?.update(.init(state: state, staleDate: nil))
+        guard let currentActivity = activity else { return }
+        await currentActivity.update(.init(state: state, staleDate: nil))
     }
 
     func finish(detail: String, success: Bool) async {
         let state = DeepSeekActivityAttributes.ContentState(phase: success ? "completed" : "failed", detail: detail, progress: 1)
-        await activity?.end(.init(state: state, staleDate: nil), dismissalPolicy: .default)
+        guard let currentActivity = activity else { return }
+        await currentActivity.end(.init(state: state, staleDate: nil), dismissalPolicy: .default)
         activity = nil
     }
 
