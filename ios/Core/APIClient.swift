@@ -35,7 +35,14 @@ final class APIClient: Sendable {
                         }
                         guard http.statusCode == 200 else { throw ClientError.badResponse(http.statusCode) }
                         var parser = SSEParser(); var emitted = false
-                        for try await byte in bytes { for event in parser.append(Data([byte])) { if case .content = event { emitted = true }; if case .reasoning = event { emitted = true }; continuation.yield(event) } }
+                        for try await byte in bytes {
+                            for event in parser.append(Data([byte])) {
+                                if case .content = event { emitted = true }
+                                if case .reasoning = event { emitted = true }
+                                continuation.yield(event)
+                                if event == .done { continuation.finish(); return }
+                            }
+                        }
                         for event in parser.finish() { continuation.yield(event); if event == .done { continuation.finish(); return } }
                         if emitted { throw ClientError.streamEnded }; continuation.finish(); return
                     }
