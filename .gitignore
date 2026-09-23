@@ -1,0 +1,9 @@
+backend/node_modules/
+backend/dist/
+backend/build/
+backend/data/
+ios/PersonalDeepSeek.xcodeproj/
+*.xcuserstate
+.DS_Store
+.env
+gittoken.txt

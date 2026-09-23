@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/schemas/task.schema.json",
+  "title": "ScheduledTaskDraft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "kind", "schedule", "prompt", "tools", "notify"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "kind": { "type": "string", "enum": ["one_off", "recurring", "monitor"] },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "expression", "timezone"],
+      "properties": {
+        "type": { "type": "string", "enum": ["once", "rrule", "cron"] },
+        "expression": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "timezone": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 20000 },
+    "tools": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["none", "web_search", "web_fetch"] },
+      "uniqueItems": true,
+      "maxItems": 3
+    },
+    "notify": { "type": "boolean" }
+  }
+}

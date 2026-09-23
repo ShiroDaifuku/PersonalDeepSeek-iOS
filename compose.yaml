@@ -1,0 +1,47 @@
+services:
+  deepseek-personal:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT:-8787}:8787"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATA_FILE: /app/data/store.json
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?Set DEEPSEEK_API_KEY in .env}
+      APP_ACCESS_TOKEN: ${APP_ACCESS_TOKEN:?Set APP_ACCESS_TOKEN in .env}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:?Set INTERNAL_TOKEN in .env}
+      ENABLE_SCHEDULER: "true"
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-60}
+      DEEPSEEK_DEFAULT_MODEL: ${DEEPSEEK_DEFAULT_MODEL:-deepseek-flash}
+      DEEPSEEK_TASK_MODEL: ${DEEPSEEK_TASK_MODEL:-deepseek-flash}
+      DAILY_RUN_LIMIT: ${DAILY_RUN_LIMIT:-24}
+      UNREAD_PAUSE_THRESHOLD: ${UNREAD_PAUSE_THRESHOLD:-5}
+      MONTHLY_BUDGET_MICROS: ${MONTHLY_BUDGET_MICROS:-5000000}
+      DOCUMENTS_DIR: /app/data/documents
+      KNOWLEDGE_FILE: /app/data/knowledge.json
+      KNOWLEDGE_BASES_FILE: /app/data/knowledge-bases.json
+      PUSH_FILE: /app/data/push.json
+      MAX_DOCUMENT_BYTES: ${MAX_DOCUMENT_BYTES:-5000000}
+      MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-10000000}
+      JSON_BODY_MAX_BYTES: ${JSON_BODY_MAX_BYTES:-16000000}
+      KNOWLEDGE_MIN_SCORE: ${KNOWLEDGE_MIN_SCORE:-0.05}
+      WEB_SEARCH_API_URL: ${WEB_SEARCH_API_URL:-https://api.search.brave.com/res/v1/web/search}
+      WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY:-}
+      WEB_FETCH_MAX_BYTES: ${WEB_FETCH_MAX_BYTES:-1000000}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TOPIC: ${APNS_TOPIC:-local.personal.deepseek}
+      APNS_PRIVATE_KEY: ${APNS_PRIVATE_KEY:-}
+    volumes:
+      - deepseek_data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  deepseek_data:

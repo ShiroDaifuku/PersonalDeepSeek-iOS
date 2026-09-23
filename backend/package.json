@@ -1,0 +1,17 @@
+{
+  "name": "personal-deepseek-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node build/src/server.js",
+    "dev": "node --watch --experimental-strip-types src/server.ts",
+    "test": "npm run build && node --test build/tests/deepseek.test.js build/tests/server.test.js build/tests/sse.test.js build/tests/tasks.test.js build/tests/modules.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
