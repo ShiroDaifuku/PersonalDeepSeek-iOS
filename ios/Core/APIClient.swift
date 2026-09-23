@@ -1,27 +1,17 @@
 import Foundation
 
-enum ConnectionMode: String, CaseIterable, Sendable { case proxy, direct }
-struct ClientConfiguration: Sendable { var mode: ConnectionMode; var proxyURL: URL; var userID: String }
 enum ClientError: LocalizedError, Sendable { case missingKey, badResponse(Int), invalidConfiguration, streamEnded
     var errorDescription: String? { switch self { case .missingKey: "请先在设置中保存 API Key"; case .badResponse(let code): "服务器返回 \(code)"; case .invalidConfiguration: "连接配置无效"; case .streamEnded: "流意外中断，请手动重试" } }
 }
 
 final class APIClient: Sendable {
-    let configuration: ClientConfiguration
-    init(configuration: ClientConfiguration) { self.configuration = configuration }
     func stream(messages: [APIMessage], model: String, thinking: Bool, reasoningEffort: String) -> AsyncThrowingStream<StreamDelta, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let endpoint: URL; var headers = ["Content-Type": "application/json", "X-Request-ID": UUID().uuidString]
-                    switch configuration.mode {
-                    case .proxy:
-                        endpoint = configuration.proxyURL.appending(path: "v1/chat/completions"); headers["X-User-ID"] = configuration.userID
-                        if let token = KeychainStore.readProxyToken(), !token.isEmpty { headers["Authorization"] = "Bearer \(token)" }
-                    case .direct:
-                        endpoint = URL(string: "https://api.deepseek.com/chat/completions")!
-                        guard let key = KeychainStore.readAPIKey(), !key.isEmpty else { throw ClientError.missingKey }; headers["Authorization"] = "Bearer \(key)"
-                    }
+                    let endpoint = URL(string: "https://api.deepseek.com/chat/completions")!
+                    guard let key = KeychainStore.readAPIKey(), !key.isEmpty else { throw ClientError.missingKey }
+                    var headers = ["Content-Type": "application/json", "X-Request-ID": UUID().uuidString, "Authorization": "Bearer \(key)"]
                     var request = URLRequest(url: endpoint); request.httpMethod = "POST"; headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
                     var body: [String: Any] = ["model": model, "stream": true, "messages": messages.map { ["role": $0.role, "content": $0.wireContent] }]
                     body["thinking"] = ["type": thinking ? "enabled" : "disabled"]; body["reasoning_effort"] = reasoningEffort

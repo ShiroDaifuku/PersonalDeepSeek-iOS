@@ -1,8 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("connectionMode") private var mode = ConnectionMode.proxy.rawValue
-    @AppStorage("proxyURL") private var proxyURL = "http://127.0.0.1:8787/"
+    @AppStorage("cloudServiceURL") private var cloudServiceURL = ""
     @AppStorage("defaultModel") private var model = "deepseek-flash"
     @AppStorage("thinkingEnabled") private var thinking = true
     @AppStorage("reasoningEffort") private var effort = "high"
@@ -15,22 +14,23 @@ struct SettingsView: View {
     @State private var notificationStatus: String?
     var body: some View {
         Form {
-            Section("连接") {
-                Picker("模式", selection: $mode) { Text("后端代理").tag(ConnectionMode.proxy.rawValue); Text("自备 Key 直连").tag(ConnectionMode.direct.rawValue) }
-                if mode == ConnectionMode.proxy.rawValue {
-                    TextField("代理地址", text: $proxyURL).textInputAutocapitalization(.never).keyboardType(.URL)
-                    SecureField("访问令牌", text: $proxyToken).textContentType(.password)
-                    Button("保存访问令牌") { do { try KeychainStore.saveProxyToken(proxyToken); proxyToken = ""; saved = true } catch { saved = false } }
-                    Button("删除访问令牌", role: .destructive) { KeychainStore.deleteProxyToken() }
-                    Button(checking ? "正在测试…" : "测试代理连接") { testProxy() }.disabled(checking)
-                    if let connectionStatus { Text(connectionStatus).font(.caption).foregroundStyle(connectionStatus == "连接成功" ? .green : .red) }
-                }
-                else {
-                    SecureField("DeepSeek API Key", text: $key).textContentType(.password)
-                    Button("保存到 Keychain") { do { try KeychainStore.saveAPIKey(key); key = ""; saved = true } catch { saved = false } }
-                    Button("删除 Key", role: .destructive) { KeychainStore.deleteAPIKey() }
-                    if saved { Text("已安全保存").foregroundStyle(.green) }
-                }
+            Section("DeepSeek") {
+                SecureField("DeepSeek API Key", text: $key).textContentType(.password)
+                Button("保存到 Keychain") { do { try KeychainStore.saveAPIKey(key); key = ""; saved = true } catch { saved = false } }
+                Button("删除 Key", role: .destructive) { KeychainStore.deleteAPIKey() }
+                if saved { Text("已安全保存").foregroundStyle(.green) }
+                Text("聊天、图片分析、资料库检索和用户主动发起的研究直接在本机编排。Key 只保存在系统 Keychain。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("云端任务服务") {
+                TextField("https://你的服务地址/", text: $cloudServiceURL).textInputAutocapitalization(.never).keyboardType(.URL)
+                SecureField("服务访问令牌", text: $proxyToken).textContentType(.password)
+                Button("保存服务令牌") { do { try KeychainStore.saveCloudServiceToken(proxyToken); proxyToken = ""; saved = true } catch { saved = false } }
+                Button("删除服务令牌", role: .destructive) { KeychainStore.deleteCloudServiceToken() }
+                Button(checking ? "正在测试…" : "测试云端任务服务") { testCloudService() }.disabled(checking)
+                if let connectionStatus { Text(connectionStatus).font(.caption).foregroundStyle(connectionStatus == "连接成功" ? .green : .red) }
+                Text("仅定时任务、执行历史和推送使用该服务；不上传本地资料库。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("模型") {
                 TextField("模型名", text: $model).textInputAutocapitalization(.never)
@@ -44,11 +44,11 @@ struct SettingsView: View {
                 if let notificationStatus { Text(notificationStatus).font(.caption).foregroundStyle(.secondary) }
                 Text("小组件和 Live Activity 使用 App Group 共享快照；扩展不会自行联网。").font(.caption).foregroundStyle(.secondary)
             }
-            Section("说明") { Text("直连模式的 Key 只存入系统 Keychain，不会写入 SwiftData、UserDefaults 或日志。任务功能始终需要本地后端。") }
+            Section("说明") { Text("App 会自动路由：交互功能在本机执行，必须在手机离线时运行的任务交给云端。不需要切换连接模式。") }
         }.navigationTitle("设置").onAppear { if userID.isEmpty { userID = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") } }
     }
-    private func testProxy() {
-        guard let url = URL(string: proxyURL), !userID.isEmpty else { connectionStatus = "代理地址无效"; return }
+    private func testCloudService() {
+        guard let url = URL(string: cloudServiceURL), url.scheme == "https", !userID.isEmpty else { connectionStatus = "请输入有效的 HTTPS 服务地址"; return }
         checking = true; connectionStatus = nil
         Task { do { _ = try await TaskAPI(base: url, userID: userID).list(); connectionStatus = "连接成功" } catch { connectionStatus = error.localizedDescription }; checking = false }
     }

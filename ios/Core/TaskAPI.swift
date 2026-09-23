@@ -41,7 +41,7 @@ final class TaskAPI: Sendable {
     }
     private func request(_ path: String, method: String, data: Data?) async throws -> (Data, URLResponse) {
         var request = URLRequest(url: base.appending(path: path)); request.httpMethod = method; request.setValue(userID, forHTTPHeaderField: "X-User-ID"); request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = data
-        if let token = KeychainStore.readProxyToken(), !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let token = KeychainStore.readCloudServiceToken(), !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let result = try await URLSession.shared.data(for: request); if let response = result.1 as? HTTPURLResponse, !(200..<300).contains(response.statusCode) { if let body = try? JSONDecoder().decode(APIErrorEnvelope.self, from: result.0) { throw NSError(domain: body.error.code, code: response.statusCode, userInfo: [NSLocalizedDescriptionKey: body.error.message]) }; throw ClientError.badResponse(response.statusCode) }; return result
     }
 }

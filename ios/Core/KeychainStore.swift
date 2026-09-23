@@ -19,7 +19,7 @@ enum KeychainStore {
     static func saveAPIKey(_ value: String) throws { try save(value, account: "deepseek-api-key") }
     static func readAPIKey() -> String? { read(account: "deepseek-api-key") }
     static func deleteAPIKey() { delete(account: "deepseek-api-key") }
-    static func saveProxyToken(_ value: String) throws { try save(value, account: "proxy-access-token") }
-    static func readProxyToken() -> String? { read(account: "proxy-access-token") }
-    static func deleteProxyToken() { delete(account: "proxy-access-token") }
+    static func saveCloudServiceToken(_ value: String) throws { try save(value, account: "proxy-access-token") }
+    static func readCloudServiceToken() -> String? { read(account: "proxy-access-token") }
+    static func deleteCloudServiceToken() { delete(account: "proxy-access-token") }
 }

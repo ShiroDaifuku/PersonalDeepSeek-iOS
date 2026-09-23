@@ -1,7 +1,9 @@
 import SwiftUI
+import SwiftData
 
 struct TaskListView: View {
-    @AppStorage("proxyURL") private var proxyURL = "http://127.0.0.1:8787/"
+    @Query(sort: \LocalKnowledgeBase.createdAt) private var knowledgeBases: [LocalKnowledgeBase]
+    @AppStorage("cloudServiceURL") private var cloudServiceURL = ""
     @AppStorage("opaqueUserID") private var userID = ""
     @State private var tasks: [RemoteTask] = []
     @State private var naturalLanguage = ""
@@ -21,6 +23,8 @@ struct TaskListView: View {
                     LabeledContent("标题", value: draft.title); LabeledContent("类型", value: draft.kind)
                     LabeledContent("计划", value: draft.schedule.expression); LabeledContent("时区", value: draft.schedule.timezone)
                     Text(draft.prompt)
+                    let references = LocalKnowledgeIndex.search(draft.prompt, in: knowledgeBases, limit: 4)
+                    if !references.isEmpty { Label("将随任务附带 \(references.count) 个本地资料片段；不会上传整个资料库", systemImage: "lock.doc").font(.caption).foregroundStyle(.secondary) }
                     HStack { Button("确认保存") { confirm(draft) }; Button("取消", role: .cancel) { self.draft = nil } }
                 }
             }
@@ -35,9 +39,9 @@ struct TaskListView: View {
             .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { _ in openPendingTaskIfNeeded() }
             .sheet(item: $historyTask) { TaskHistoryView(task: $0) }
     }
-    private var api: TaskAPI? { guard let url = URL(string: proxyURL), !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
-    private func parse() { guard let api else { errorText = "请先配置代理"; return }; working = true; Task { do { draft = try await api.parse(naturalLanguage) } catch { errorText = error.localizedDescription }; working = false } }
-    private func confirm(_ value: TaskDraft) { guard let api else { return }; Task { do { _ = try await api.create(value); draft = nil; naturalLanguage = ""; await load() } catch { errorText = error.localizedDescription } } }
+    private var api: TaskAPI? { guard let url = URL(string: cloudServiceURL), !cloudServiceURL.isEmpty, !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
+    private func parse() { guard let api else { errorText = "请先在设置中配置云端任务服务"; return }; working = true; Task { do { draft = try await api.parse(naturalLanguage) } catch { errorText = error.localizedDescription }; working = false } }
+    private func confirm(_ value: TaskDraft) { guard let api else { return }; let references = LocalKnowledgeIndex.search(value.prompt, in: knowledgeBases, limit: 4); let snapshot = LocalKnowledgeIndex.attachingContext(to: value, results: references); Task { do { _ = try await api.create(snapshot); draft = nil; naturalLanguage = ""; await load() } catch { errorText = error.localizedDescription } } }
     private func toggle(_ task: RemoteTask, _ enabled: Bool) { guard let api else { return }; Task { do { _ = try await api.setEnabled(task, enabled); await load() } catch { errorText = error.localizedDescription } } }
     private func remove(_ task: RemoteTask) { guard let api else { return }; Task { do { try await api.delete(task); await load() } catch { errorText = error.localizedDescription } } }
     private var alarmIDs: Set<String> { Set(deviceAlarmTaskIDs.split(separator: ",").map(String.init)) }
@@ -54,17 +58,17 @@ struct TaskListView: View {
         guard let descriptor = AlarmScheduleParser.parse(taskID: task.id, title: task.title, schedule: task.schedule) else { errorText = "仅支持固定时间的一次性或每周 cron 强提醒"; return }
         Task { do { try await DeviceAlarmService.shared.schedule(descriptor); var values = alarmIDs; values.insert(task.id); deviceAlarmTaskIDs = values.sorted().joined(separator: ",") } catch { errorText = error.localizedDescription } }
     }
-    @MainActor private func load() async { guard let api else { return }; do { tasks = try await api.list(); AppGroupSnapshotStore.updateTasks(tasks.map { .init(id: $0.id, title: $0.title, nextRunAt: $0.nextRunAt, enabled: $0.enabled) }); errorText = nil } catch { errorText = error.localizedDescription } }
+    @MainActor private func load() async { guard let api else { errorText = "云端任务服务尚未配置"; return }; do { tasks = try await api.list(); AppGroupSnapshotStore.updateTasks(tasks.map { .init(id: $0.id, title: $0.title, nextRunAt: $0.nextRunAt, enabled: $0.enabled) }); errorText = nil } catch { errorText = error.localizedDescription } }
 }
 
 private struct TaskHistoryView: View {
     let task: RemoteTask
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("proxyURL") private var proxyURL = "http://127.0.0.1:8787/"
+    @AppStorage("cloudServiceURL") private var cloudServiceURL = ""
     @AppStorage("opaqueUserID") private var userID = ""
     @State private var runs: [RemoteTaskRun] = []
     @State private var errorText: String?
-    private var api: TaskAPI? { guard let url = URL(string: proxyURL), !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
+    private var api: TaskAPI? { guard let url = URL(string: cloudServiceURL), !cloudServiceURL.isEmpty, !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
     var body: some View {
         NavigationStack {
             List {
@@ -86,7 +90,7 @@ private struct TaskHistoryView: View {
         }
     }
     @MainActor private func loadAndMarkRead() async {
-        guard let api else { errorText = "代理配置无效"; return }
+        guard let api else { errorText = "云端任务服务尚未配置"; return }
         do {
             runs = try await api.runs(task).sorted { $0.startedAt > $1.startedAt }
             for run in runs where !run.read { try await api.markRead(taskID: task.id, runID: run.id) }

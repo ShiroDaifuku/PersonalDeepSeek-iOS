@@ -6,9 +6,7 @@ import UniformTypeIdentifiers
 struct ChatView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
-    @AppStorage("connectionMode") private var mode = ConnectionMode.proxy.rawValue
-    @AppStorage("proxyURL") private var proxyURL = "http://127.0.0.1:8787/"
-    @AppStorage("opaqueUserID") private var userID = ""
+    @Query(sort: \LocalKnowledgeBase.createdAt) private var knowledgeBases: [LocalKnowledgeBase]
     @AppStorage("defaultModel") private var defaultModel = "deepseek-flash"
     @AppStorage("thinkingEnabled") private var thinking = true
     @AppStorage("reasoningEffort") private var effort = "high"
@@ -54,7 +52,7 @@ struct ChatView: View {
                 Button { createConversation() } label: { Image(systemName: "square.and.pencil") }
             }
         }
-        .onAppear { if userID.isEmpty { userID = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") }; current = conversations.first; openPendingConversationIfNeeded() }
+        .onAppear { current = conversations.first; openPendingConversationIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { _ in openPendingConversationIfNeeded() }
         .sheet(isPresented: $showingConversations) { ConversationListView(selection: $current, defaultModel: defaultModel) }
         .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
@@ -85,14 +83,15 @@ struct ChatView: View {
         let imageDataURLs = attachments.filter(\.isImage).map(\.dataURL)
         if current == nil { createConversation() }; guard let conversation = current else { return }
         let history = conversation.messages.sorted { $0.createdAt < $1.createdAt }
-        let requestMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
+        let knowledgeResults = LocalKnowledgeIndex.search(requestText, in: knowledgeBases, limit: 6)
+        let knowledgeContext = LocalKnowledgeIndex.context(from: knowledgeResults)
+        let requestMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, knowledgeContext: knowledgeContext, newUserText: requestText, imageDataURLs: imageDataURLs)
         let attachmentNames = attachments.map(\.name)
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation); let assistant = ChatMessage(role: "assistant", conversation: conversation)
         context.insert(user); context.insert(assistant); input = ""; attachments = []; photoSelection = []; isStreaming = true; errorText = nil
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
-        guard let url = URL(string: proxyURL), let selectedMode = ConnectionMode(rawValue: mode) else { errorText = "设置中的代理 URL 无效"; isStreaming = false; return }
-        let client = APIClient(configuration: .init(mode: selectedMode, proxyURL: url, userID: userID))
+        let client = APIClient()
         LiveActivityManager.shared.start(title: conversation.title, kind: "generation", detail: "正在生成回答")
         streamTask = Task {
             do {

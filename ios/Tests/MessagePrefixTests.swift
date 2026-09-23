@@ -21,4 +21,14 @@ final class MessagePrefixTests: XCTestCase {
     func testPlainMessageKeepsStringWireFormat() {
         XCTAssertEqual(APIMessage(role: "user", content: "hello").wireContent as? String, "hello")
     }
+
+    func testKnowledgeContextDoesNotChangeStableSystemHistoryPrefix() {
+        let conversation = Conversation()
+        let history = ChatMessage(role: "assistant", content: "earlier", conversation: conversation)
+        let messages = MessagePrefix.stable(system: "system", history: [history], knowledgeContext: "[1] note\nlocal text", newUserText: "question")
+        XCTAssertEqual(Array(messages.prefix(2)), [APIMessage(role: "system", content: "system"), APIMessage(role: "assistant", content: "earlier")])
+        XCTAssertEqual(messages[2].role, "system")
+        XCTAssertTrue(messages[2].content.contains("local text"))
+        XCTAssertEqual(messages[3], APIMessage(role: "user", content: "question"))
+    }
 }

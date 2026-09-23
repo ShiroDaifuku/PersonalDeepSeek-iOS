@@ -32,12 +32,12 @@ final class PushRegistration {
 
     private func upload(path: String, body: [String: String]) async {
         let defaults = UserDefaults.standard
-        guard let base = URL(string: defaults.string(forKey: "proxyURL") ?? ""),
+        guard let base = URL(string: defaults.string(forKey: "cloudServiceURL") ?? ""),
               let userID = defaults.string(forKey: "opaqueUserID"), !userID.isEmpty else { return }
         var request = URLRequest(url: base.appending(path: path)); request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(userID, forHTTPHeaderField: "X-User-ID")
-        if let token = KeychainStore.readProxyToken(), !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let token = KeychainStore.readCloudServiceToken(), !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         _ = try? await URLSession.shared.data(for: request)
     }
