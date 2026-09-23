@@ -5,8 +5,8 @@
 ## 已实现
 
 - SwiftData 本地会话和消息，多轮请求固定为 `system + 已排序历史 + 新消息`。
-- 后端代理与 Keychain BYOK 直连切换；源码、配置和日志均不包含密钥。
-- 远程代理可配置独立访问令牌，令牌保存在 Keychain；非回环地址启动时后端强制要求访问令牌。
+- 单一路由架构：聊天、图片理解、本地知识库和深度研究直接在 iPhone 上运行；DeepSeek 与搜索 API Key 只保存在 Keychain，源码、配置和日志均不包含密钥。
+- 云端服务只承担定时任务、执行历史、配额护栏和 APNs；访问令牌保存在 Keychain，非回环地址启动时后端强制要求访问令牌。
 - DeepSeek Chat Completions SSE，区分 `reasoning_content` 与 `content`，忽略空行和 `: keep-alive`，支持 CRLF、分片、usage 与 `[DONE]`。
 - 流开始前的 429/5xx 有界指数退避；流中断显式报错，不自动重复生成；网络超时覆盖服务端十分钟未开始推理的边界。
 - 模型名、thinking 和 reasoning effort 设置；思考内容折叠；系统 Markdown、复制和分享。
@@ -15,14 +15,15 @@
 - 多会话选择、新建、删除，以及会话级标题、模型名和自定义 system 指令。
 - Dockerfile、Compose、持久化卷、健康检查、自动调度循环和 SIGINT/SIGTERM 优雅退出。
 - JSON 文件持久化位于仓储接口之后，可替换为 PostgreSQL。后端没有 Key 仍可启动和响应健康检查。
-- 图片 Files API 代理、文本文件知识库、确定性本地检索、可配置联网搜索、SSRF 防护抓取，以及 APNs 设备/Live Activity token 与任务通知状态。
+- 后端保留兼容性的 Files/搜索/抓取接口，并实现定时任务、APNs 设备/Live Activity token 与通知状态；日常聊天与研究不依赖后端在线。
 - iOS 相册多图、相机、附件预览/移除和 base64 `image_url`；文本/JSON 聊天附件，PDF 在知识库页用 PDFKit 提取文本。
-- 知识库创建、启停、上传、文件列表/删除和查询；聊天自动检索启用知识库，在本轮最后一条 user 消息前插入不可信引用上下文，从而保持既有 system+历史前缀稳定。
+- SwiftData 本地知识库创建、启停、导入、文件列表/删除和查询；聊天自动检索启用知识库，在本轮最后一条 user 消息前插入不可信引用上下文，从而保持既有 system+历史前缀稳定。
+- 本地深度研究初版：Brave Search 搜索、并发 HTTPS 抓取、网页正文提取、本地知识库融合、DeepSeek 流式汇总与编号引用，全程由 iPhone 编排。
 - WidgetKit 会话/任务摘要、生成与任务 Live Activity、App Group 离线快照，以及 iOS 26 AlarmKit 一次性/固定每周强提醒。
 
 ## 明确延期
 
-完整 Markdown 表格/代码高亮/LaTeX、深度研究、扫描 PDF OCR、CloudKit、StoreKit、App Intents 和 Share Extension 仍延期。知识库当前使用可替换 `EmbeddingProvider` 的确定性词元哈希实现，只适合个人初版离线验证，语义质量不能替代生产 embedding 服务；JSON 仓储只适合单进程个人开发，生产多实例需换数据库和分布式租约。
+完整 Markdown 表格/代码高亮/LaTeX、扫描 PDF OCR、CloudKit、StoreKit、App Intents、Share Extension，以及会根据证据缺口自动追加搜索词的多轮研究循环仍延期。知识库当前使用确定性词元哈希向量，只适合个人初版离线验证，语义质量不能替代生产 embedding 服务；JSON 仓储只适合单进程个人开发，生产多实例需换数据库和分布式租约。
 
 ## 后端
 
@@ -101,11 +102,11 @@ xcodebuild -project PersonalDeepSeek.xcodeproj -scheme PersonalDeepSeek \
   -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
 
-随后在 Xcode 打开工程，在 App 和 Widget 两个 target 选择同一 Team。把 `local.personal.deepseek`、`local.personal.deepseek.widgets` 和 App Group `group.local.personal.deepseek` 改成你账号下唯一值，并同步修改两个 entitlements、`AppGroupSnapshotStore.suiteName` 与后端 `APNS_TOPIC`。启用 App Groups、Push Notifications 和 Live Activities 所需 capability；免费个人 Team 可能不提供 APNs，其他本地功能仍可运行。连接设备后 Run。真机访问电脑后端时，将代理地址改成 Mac 的局域网 IP；远程部署必须使用 HTTPS。
+随后在 Xcode 打开工程，在 App 和 Widget 两个 target 选择同一 Team。把 `local.personal.deepseek`、`local.personal.deepseek.widgets` 和 App Group `group.local.personal.deepseek` 改成你账号下唯一值，并同步修改两个 entitlements、`AppGroupSnapshotStore.suiteName` 与后端 `APNS_TOPIC`。启用 App Groups、Push Notifications 和 Live Activities 所需 capability；免费个人 Team 可能不提供 APNs，其他本地功能仍可运行。连接设备后 Run。聊天、知识库和研究无需电脑在线；云端任务服务必须部署在手机可访问的 HTTPS 地址，局域网临时调试可填写 Mac 的局域网地址。
 
 AlarmKit 只在 iOS 26+ 调用。一次性任务使用固定日期；每周强提醒只接受小时、分钟和星期均为具体值的 cron，且任务时区必须与当前设备时区一致。不支持时 App 会显示明确错误，服务器权威调度不受影响。
 
-直连模式在设置页把 DeepSeek Key 写入 Keychain。代理模式在设置页填写后端地址和 `APP_ACCESS_TOKEN`，DeepSeek Key 只配置在后端环境变量。设置页可直接测试代理鉴权与连接。不要把 `.env`、Xcode Scheme 环境变量或 `data/store.json` 提交到版本库。
+在设置页分别保存 DeepSeek Key、Brave Search Key、云端任务服务地址和 `APP_ACCESS_TOKEN`；密钥与令牌均写入 Keychain。聊天与研究使用端上密钥直连，定时任务由云端服务使用其环境变量中的 `DEEPSEEK_API_KEY` 执行。不要把 `.env`、Xcode Scheme 环境变量或 `data/store.json` 提交到版本库。
 
 ## API 与调度语义
 

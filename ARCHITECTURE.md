@@ -6,7 +6,7 @@ This repository is a runnable first-stage foundation for a personal, sideloaded 
 
 The first-stage vertical slice is:
 
-1. Configure either the bundled backend proxy or a personal DeepSeek API key stored in Keychain.
+1. Configure a personal DeepSeek API key stored in Keychain for on-device chat and a separate cloud task service for authoritative scheduling.
 2. Create local conversations and messages with SwiftData.
 3. Send stable `system + history + new user message` prefixes.
 4. Stream DeepSeek Chat Completions SSE, separating `reasoning_content` and `content`.
@@ -25,8 +25,9 @@ The first-stage vertical slice is:
 ## Non-negotiable design rules
 
 - No API key in source, plist, fixtures, generated project files, or logs.
-- The proxy obtains its key only from `DEEPSEEK_API_KEY`.
-- BYOK is stored with Keychain Services and sent directly to DeepSeek only when the user explicitly selects direct mode.
+- The cloud task service obtains its key only from `DEEPSEEK_API_KEY`.
+- BYOK and search credentials are stored with Keychain Services and used directly only by the on-device chat/research paths; there is no user-facing connection-mode switch.
+- Knowledge documents and embeddings remain in SwiftData. Only a bounded set of retrieved excerpts is snapshotted into a cloud task when the user confirms it.
 - Backend requests send an opaque `user_id`; never send email or device name as `user_id`.
 - Every streamed request has an idempotency/request identifier.
 - A retry is allowed only before a response stream emits model content. Mid-stream failures remain visible and retry requires a new user action.
@@ -38,7 +39,7 @@ The first-stage vertical slice is:
 
 ## Deliberately deferred
 
-The following get protocols/placeholders in this stage, not fake implementations: CloudKit production sync, StoreKit subscription, arbitrary document extraction/vector indexing, third-party web search credentials, production APNs, AlarmKit, widgets, Live Activities, Share Extension, deep-research crawling, and content moderation vendors.
+The following remain deferred or partial: CloudKit production sync, StoreKit subscription, scanned-document OCR, Share Extension, App Intents, production content-moderation vendors, and an iterative research loop that autonomously issues follow-up searches. Local search→fetch→knowledge fusion→streamed synthesis, WidgetKit, Live Activities, guarded AlarmKit support, APNs plumbing, and local deterministic vector indexing have initial implementations and must not be described as production-complete.
 
 ## Acceptance checks
 
