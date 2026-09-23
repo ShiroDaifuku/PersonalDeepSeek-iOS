@@ -22,4 +22,7 @@ enum KeychainStore {
     static func saveCloudServiceToken(_ value: String) throws { try save(value, account: "proxy-access-token") }
     static func readCloudServiceToken() -> String? { read(account: "proxy-access-token") }
     static func deleteCloudServiceToken() { delete(account: "proxy-access-token") }
+    static func saveSearchAPIKey(_ value: String) throws { try save(value, account: "web-search-api-key") }
+    static func readSearchAPIKey() -> String? { read(account: "web-search-api-key") }
+    static func deleteSearchAPIKey() { delete(account: "web-search-api-key") }
 }

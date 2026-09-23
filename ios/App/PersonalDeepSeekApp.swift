@@ -15,6 +15,7 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack { ChatView() }.tabItem { Label("聊天", systemImage: "bubble.left.and.bubble.right") }.tag("chat")
+            NavigationStack { ResearchView() }.tabItem { Label("研究", systemImage: "magnifyingglass") }.tag("research")
             NavigationStack { TaskListView() }.tabItem { Label("任务", systemImage: "clock") }.tag("tasks")
             NavigationStack { KnowledgeBaseView() }.tabItem { Label("知识库", systemImage: "books.vertical") }.tag("knowledge")
             NavigationStack { SettingsView() }.tabItem { Label("设置", systemImage: "gear") }.tag("settings")

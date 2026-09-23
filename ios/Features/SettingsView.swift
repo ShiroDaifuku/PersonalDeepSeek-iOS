@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("reasoningEffort") private var effort = "high"
     @AppStorage("opaqueUserID") private var userID = ""
     @State private var key = ""
+    @State private var searchKey = ""
     @State private var proxyToken = ""
     @State private var saved = false
     @State private var connectionStatus: String?
@@ -30,6 +31,13 @@ struct SettingsView: View {
                 Button(checking ? "正在测试…" : "测试云端任务服务") { testCloudService() }.disabled(checking)
                 if let connectionStatus { Text(connectionStatus).font(.caption).foregroundStyle(connectionStatus == "连接成功" ? .green : .red) }
                 Text("仅定时任务、执行历史和推送使用该服务；不上传本地资料库。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("本地联网研究") {
+                SecureField("Brave Search API Key", text: $searchKey).textContentType(.password)
+                Button("保存搜索 Key") { do { try KeychainStore.saveSearchAPIKey(searchKey); searchKey = ""; saved = true } catch { saved = false } }
+                Button("删除搜索 Key", role: .destructive) { KeychainStore.deleteSearchAPIKey() }
+                Text("搜索与网页抓取由本机发起；Key 只保存在 Keychain，研究结果不会上传到云端任务服务。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("模型") {
