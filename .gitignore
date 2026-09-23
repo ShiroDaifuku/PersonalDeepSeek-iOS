@@ -7,3 +7,5 @@ ios/PersonalDeepSeek.xcodeproj/
 .DS_Store
 .env
 gittoken.txt
+cloudflare-token.txt
+cloudflare-account-id.txt
