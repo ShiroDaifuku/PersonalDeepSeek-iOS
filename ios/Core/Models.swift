@@ -6,10 +6,11 @@ import SwiftData
     var title: String
     var systemPrompt: String
     var model: String
+    var mode: String = "chat"
     var createdAt: Date
     @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation) var messages: [ChatMessage]
-    init(title: String = "新对话", systemPrompt: String = "You are a helpful assistant.", model: String = "deepseek-flash") {
-        id = UUID(); self.title = title; self.systemPrompt = systemPrompt; self.model = model; createdAt = Date(); messages = []
+    init(title: String = "新对话", systemPrompt: String = "You are a helpful assistant.", model: String = "deepseek-flash", mode: String = "chat") {
+        id = UUID(); self.title = title; self.systemPrompt = systemPrompt; self.model = model; self.mode = mode; createdAt = Date(); messages = []
     }
 }
 

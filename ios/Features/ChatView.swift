@@ -3,6 +3,14 @@ import SwiftData
 import PhotosUI
 import UniformTypeIdentifiers
 
+private enum ComposerToolMode: String, Identifiable {
+    case scheduledTask, deepResearch, knowledge
+    var id: String { rawValue }
+    var title: String { switch self { case .scheduledTask: "创建定时任务"; case .deepResearch: "深度搜索"; case .knowledge: "连接知识库" } }
+    var icon: String { switch self { case .scheduledTask: "clock.badge.plus"; case .deepResearch: "sparkle.magnifyingglass"; case .knowledge: "books.vertical" } }
+    var preferredTool: String { switch self { case .scheduledTask: "create_scheduled_task"; case .deepResearch: "start_deep_search"; case .knowledge: "search_local_knowledge" } }
+}
+
 struct ChatView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -30,14 +38,20 @@ struct ChatView: View {
     @State private var pendingKnowledgeAction: PendingKnowledgeAction?
     @State private var knowledgeImportTarget: LocalKnowledgeBase?
     @State private var showingKnowledgeImporter = false
+    @State private var manualTool: ComposerToolMode?
+    @FocusState private var composerFocused: Bool
 
     var body: some View {
+        ZStack(alignment: .leading) {
         VStack(spacing: 0) {
             if let conversation = current {
+                let orderedMessages = conversation.messages.sorted { $0.createdAt < $1.createdAt }
                 ScrollView {
                     LazyVStack(spacing: 14) {
-                        ForEach(conversation.messages.sorted { $0.createdAt < $1.createdAt }) { message in MessageBubble(message: message) }
-                        if isStreaming, conversation.messages.last?.content.isEmpty == true, conversation.messages.last?.reasoning.isEmpty == true {
+                        ForEach(orderedMessages) { message in
+                            MessageBubble(message: message, isStreaming: isStreaming && orderedMessages.last?.id == message.id)
+                        }
+                        if isStreaming, orderedMessages.last?.content.isEmpty == true, orderedMessages.last?.reasoning.isEmpty == true {
                             HStack { ProgressView().controlSize(.small); Text(toolStatus ?? "正在思考…").font(.callout).foregroundStyle(.secondary); Spacer() }.padding(.horizontal)
                         }
                     }.padding(.horizontal, 12).padding(.vertical, 16)
@@ -51,15 +65,27 @@ struct ChatView: View {
             }
             if let errorText { Text(errorText).foregroundStyle(.red).font(.caption).padding(.horizontal) }
             if !attachments.isEmpty { AttachmentStrip(attachments: attachments) { id in attachments.removeAll { $0.id == id } } }
+            if let manualTool {
+                HStack(spacing: 7) { Image(systemName: manualTool.icon); Text(manualTool.title); Button { self.manualTool = nil } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("取消\(manualTool.title)"); Spacer() }
+                    .font(.caption.weight(.medium)).foregroundStyle(.tint).padding(.horizontal, 14).padding(.vertical, 6)
+            }
             composer
+        }
+        if showingConversations {
+            Color.black.opacity(0.22).ignoresSafeArea().onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
+            HStack(spacing: 0) {
+                ConversationSidebarView(selection: $current, defaultModel: defaultModel) { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
+                    .frame(width: min(UIScreen.main.bounds.width * 0.86, 350)).frame(maxHeight: .infinity).shadow(color: .black.opacity(0.18), radius: 18, x: 8)
+                Spacer(minLength: 0)
+            }.transition(.move(edge: .leading))
+        }
         }
         .navigationTitle(current?.title ?? "DeepSeek").navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) { Button { composerFocused = false; withAnimation(.easeOut(duration: 0.2)) { showingConversations.toggle() } } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("展开对话侧栏") }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { showingConversations = true } label: { Image(systemName: "sidebar.left") }.accessibilityLabel("会话列表")
                 Menu { ForEach(["deepseek-flash", "deepseek-v4-pro"], id: \.self) { value in Button(value) { defaultModel = value; current?.model = value } } } label: { Image(systemName: "cpu") }.accessibilityLabel("选择模型")
                 if current != nil { Button { showingConversationSettings = true } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("会话设置") }
-                Button { createConversation() } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("新对话")
             }
         }
         .onAppear { current = conversations.first; openPendingConversationIfNeeded() }
@@ -67,7 +93,6 @@ struct ChatView: View {
             if phase == .background, isStreaming, let current { LiveActivityManager.shared.start(title: current.title, kind: "generation", detail: toolStatus ?? "正在生成回答") }
         }
         .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { _ in openPendingConversationIfNeeded() }
-        .sheet(isPresented: $showingConversations) { ConversationListView(selection: $current, defaultModel: defaultModel) }
         .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
         .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { confirmTask(action) }, onCancel: { cancelTask(action) }) }
         .sheet(item: $pendingKnowledgeAction) { pending in KnowledgeToolConfirmationView(pending: pending, onConfirm: { confirmKnowledge(pending) }, onCancel: { pendingKnowledgeAction = nil }) }
@@ -81,12 +106,19 @@ struct ChatView: View {
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 10) {
             Menu {
+                Section("本次对话工具") {
+                    Button { selectManualTool(.scheduledTask) } label: { Label("创建定时任务", systemImage: "clock.badge.plus") }
+                    Button { selectManualTool(.deepResearch) } label: { Label("开始深度搜索", systemImage: "sparkle.magnifyingglass") }
+                    Button { selectManualTool(.knowledge) } label: { Label("连接知识库", systemImage: "books.vertical") }
+                }
+                Section("添加内容") {
                 PhotosPicker(selection: $photoSelection, maxSelectionCount: 6, matching: .images) { Label("照片图库", systemImage: "photo.on.rectangle") }
                 Button { requestCamera() } label: { Label("拍照", systemImage: "camera") }
                 Button { showingFilePicker = true } label: { Label("选取文件", systemImage: "doc") }
+                }
             } label: { Image(systemName: "plus").font(.body.weight(.semibold)).frame(width: 34, height: 34).background(.thinMaterial, in: Circle()) }.disabled(isStreaming)
-            TextField("询问任何问题", text: $input, axis: .vertical).lineLimit(1...6).padding(.horizontal, 13).padding(.vertical, 9).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            Button { if isStreaming { streamTask?.cancel() } else { send() } } label: {
+            TextField(manualTool?.title ?? "询问任何问题", text: $input, axis: .vertical).lineLimit(1...6).focused($composerFocused).padding(.horizontal, 13).padding(.vertical, 9).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            Button { if isStreaming { streamTask?.cancel() } else { composerFocused = false; send() } } label: {
                 Image(systemName: isStreaming ? "stop.fill" : "arrow.up").font(.body.weight(.bold)).foregroundStyle(.white).frame(width: 36, height: 36).background(isStreaming ? Color.red : Color.accentColor, in: Circle())
             }.disabled(!isStreaming && input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty).accessibilityLabel(isStreaming ? "停止生成" : "发送")
         }.padding(.horizontal, 12).padding(.vertical, 10).background(.bar)
@@ -94,31 +126,42 @@ struct ChatView: View {
 
     private var taskAPI: TaskAPI? { guard let url = URL(string: cloudServiceURL), !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
 
-    @MainActor private func createConversation() { let value = Conversation(model: defaultModel); context.insert(value); current = value; try? context.save() }
+    @MainActor private func selectManualTool(_ tool: ComposerToolMode) {
+        manualTool = tool
+        if tool == .deepResearch {
+            if current == nil { createConversation(mode: "research") } else { current?.mode = "research"; try? context.save() }
+        }
+        composerFocused = true
+    }
+
+    @MainActor private func createConversation(mode: String = "chat") { let value = Conversation(model: defaultModel, mode: mode); context.insert(value); current = value; try? context.save() }
     private func openPendingConversationIfNeeded() {
         guard let id = UserDefaults.standard.string(forKey: "pendingConversationID"), let uuid = UUID(uuidString: id), let conversation = conversations.first(where: { $0.id == uuid }) else { return }
         UserDefaults.standard.removeObject(forKey: "pendingConversationID"); current = conversation
     }
 
     private func send() {
+        composerFocused = false
         let typedText = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typedText.isEmpty || !attachments.isEmpty else { return }
         let fileSections = attachments.compactMap { item -> String? in guard let text = item.textContent else { return nil }; return "\n\n--- 文件：\(item.name) ---\n\(text)" }.joined()
         let displayText = typedText.isEmpty ? (attachments.allSatisfy(\.isImage) ? "请分析所附图片" : "请分析所附文件") : typedText
         let requestText = displayText + fileSections
         let imageDataURLs = attachments.filter(\.isImage).map(\.dataURL)
+        let selectedManualTool = manualTool
         if current == nil { createConversation() }; guard let conversation = current else { return }
+        if selectedManualTool == .deepResearch { conversation.mode = "research" }
         let history = conversation.messages.sorted { $0.createdAt < $1.createdAt }
         let attachmentNames = attachments.map(\.name)
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation), assistant = ChatMessage(role: "assistant", conversation: conversation)
-        context.insert(user); context.insert(assistant); input = ""; attachments = []; photoSelection = []; isStreaming = true; errorText = nil; toolStatus = "正在判断是否需要工具…"
+        context.insert(user); context.insert(assistant); input = ""; attachments = []; photoSelection = []; manualTool = nil; isStreaming = true; errorText = nil; toolStatus = selectedManualTool == nil ? "正在判断是否需要工具…" : "正在准备\(selectedManualTool!.title)…"
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
         let planningMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
         streamTask = Task {
             do {
                 let tasks = (try? await taskAPI?.list()) ?? []
-                let preferredTool = AssistantIntentRouter.preferredTool(for: requestText)
+                let preferredTool = selectedManualTool?.preferredTool ?? AssistantIntentRouter.preferredTool(for: requestText)
                 let calls: [AssistantToolCall]
                 let knowledgeDescriptors = LocalKnowledgeCloudSync.descriptors(from: knowledgeBases)
                 do { calls = try await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks, knowledgeBases: knowledgeDescriptors, preferredTool: preferredTool) }
@@ -136,6 +179,7 @@ struct ChatView: View {
                         if !results.isEmpty { referenceSections.append("Local knowledge:\n" + LocalKnowledgeIndex.context(from: results)) }
                     case .deepResearch(let query):
                         toolStatus = "正在搜索并抓取可靠来源…"
+                        conversation.mode = "research"
                         LiveActivityManager.shared.start(title: conversation.title, kind: "research", detail: "正在进行深度研究")
                         let sources = try await LocalResearchService().gather(query: query)
                         referenceSections.append("Web research evidence:\n" + LocalResearchService.evidencePrompt(question: query, sources: sources))
@@ -254,22 +298,69 @@ struct ChatView: View {
 
 private struct MessageBubble: View {
     let message: ChatMessage
+    let isStreaming: Bool
     private var isUser: Bool { message.role == "user" }
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if isUser { Spacer(minLength: 44) }
-            if !isUser { Image(systemName: "sparkles").foregroundStyle(.tint).frame(width: 28, height: 28).background(.thinMaterial, in: Circle()).accessibilityHidden(true) }
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }
-                    if isUser {
-                        if let rendered = try? AttributedString(markdown: message.content) { Text(rendered).textSelection(.enabled) } else { Text(message.content).textSelection(.enabled) }
-                    } else { RichMessageView(text: message.content) }
-                }.padding(.horizontal, 13).padding(.vertical, 10).foregroundStyle(isUser ? Color.white : Color.primary).background(isUser ? Color.accentColor : Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                HStack(spacing: 14) { Button { UIPasteboard.general.string = message.content } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("复制消息"); ShareLink(item: message.content) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享消息") }.font(.caption).foregroundStyle(.secondary)
+        Group {
+            if isUser {
+                HStack(alignment: .bottom) {
+                    Spacer(minLength: 52)
+                    VStack(alignment: .trailing, spacing: 7) {
+                        Group { if let rendered = try? AttributedString(markdown: message.content) { Text(rendered) } else { Text(message.content) } }
+                            .textSelection(.enabled).padding(.horizontal, 14).padding(.vertical, 10).foregroundStyle(.white)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        messageActions
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    if !message.reasoning.isEmpty { ReasoningStrip(reasoning: message.reasoning, isStreaming: isStreaming) }
+                    if !message.content.isEmpty { RichMessageView(text: message.content).frame(maxWidth: .infinity, alignment: .leading) }
+                    if !message.content.isEmpty { messageActions }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 2)
             }
-            if !isUser { Spacer(minLength: 24) }
         }.frame(maxWidth: .infinity).accessibilityElement(children: .contain)
+    }
+
+    private var messageActions: some View {
+        HStack(spacing: 14) {
+            Button { UIPasteboard.general.string = message.content } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("复制消息")
+            ShareLink(item: message.content) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享消息")
+        }.font(.caption).foregroundStyle(.secondary)
+    }
+}
+
+private struct ReasoningStrip: View {
+    let reasoning: String
+    let isStreaming: Bool
+    @State private var expanded: Bool
+    init(reasoning: String, isStreaming: Bool) { self.reasoning = reasoning; self.isStreaming = isStreaming; _expanded = State(initialValue: isStreaming) }
+    private var characterCount: Int { reasoning.filter { !$0.isWhitespace }.count }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() } } label: {
+                HStack(spacing: 7) {
+                    if isStreaming { ProgressView().controlSize(.mini) } else { Image(systemName: "checkmark.circle") }
+                    Text("\(isStreaming ? "思考中" : "已思考") · \(characterCount) 字").font(.caption.weight(.medium))
+                    Spacer()
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2)
+                }.foregroundStyle(.secondary)
+            }.buttonStyle(.plain)
+            if expanded {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        Text(reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).id("reasoning-bottom")
+                    }
+                    .frame(height: 92)
+                    .onChange(of: reasoning) { _, _ in proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
+                    .onAppear { proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
+                }
+            }
+        }
+        .padding(.horizontal, 11).padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(Color.accentColor.opacity(0.55)).frame(width: 3).padding(.vertical, 8) }
+        .onChange(of: isStreaming) { _, active in withAnimation(.easeInOut(duration: 0.2)) { expanded = active } }
     }
 }
 

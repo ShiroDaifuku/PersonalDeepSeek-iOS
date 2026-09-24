@@ -1,41 +1,55 @@
 import SwiftUI
 import SwiftData
 
-struct ConversationListView: View {
+struct ConversationSidebarView: View {
     @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @Binding var selection: Conversation?
     let defaultModel: String
+    let onClose: () -> Void
+    @State private var search = ""
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            HStack {
+                Text("对话").font(.title2.bold())
+                Spacer()
+                Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain).accessibilityLabel("关闭侧栏")
+            }.padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 12)
+            Button { create() } label: {
+                Label("开启新对话", systemImage: "square.and.pencil").fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            }.buttonStyle(.plain).padding(.horizontal, 12)
+            TextField("搜索历史对话", text: $search).textFieldStyle(.roundedBorder).padding(12)
             List {
-                ForEach(conversations) { conversation in
-                    Button {
-                        selection = conversation; dismiss()
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(conversation.title).foregroundStyle(.primary)
-                            Text(conversation.model).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .swipeActions {
-                        Button("删除", role: .destructive) { remove(conversation) }
+                if !regularConversations.isEmpty { Section("最近对话") { conversationRows(regularConversations) } }
+                if !researchConversations.isEmpty { Section("深度研究") { conversationRows(researchConversations) } }
+                if filtered.isEmpty { ContentUnavailableView("暂无会话", systemImage: "bubble.left.and.bubble.right") }
+            }
+            .listStyle(.plain)
+        }.background(.regularMaterial)
+    }
+
+    @ViewBuilder private func conversationRows(_ values: [Conversation]) -> some View {
+        ForEach(values) { conversation in
+            Button { selection = conversation; onClose() } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: conversation.mode == "research" ? "sparkle.magnifyingglass" : "bubble.left")
+                        .foregroundStyle(selection?.id == conversation.id ? Color.accentColor : Color.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(conversation.title).lineLimit(1).foregroundStyle(.primary)
+                        Text(conversation.model).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                if conversations.isEmpty { ContentUnavailableView("暂无会话", systemImage: "bubble.left.and.bubble.right") }
-            }
-            .navigationTitle("会话")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-                ToolbarItem(placement: .primaryAction) { Button { create() } label: { Image(systemName: "square.and.pencil") } }
-            }
+            }.swipeActions { Button("删除", role: .destructive) { remove(conversation) } }
         }
     }
 
+    private var filtered: [Conversation] { let value = search.trimmingCharacters(in: .whitespacesAndNewlines); return value.isEmpty ? conversations : conversations.filter { $0.title.localizedCaseInsensitiveContains(value) || $0.messages.contains(where: { $0.content.localizedCaseInsensitiveContains(value) }) } }
+    private var regularConversations: [Conversation] { filtered.filter { $0.mode != "research" } }
+    private var researchConversations: [Conversation] { filtered.filter { $0.mode == "research" } }
+
     private func create() {
-        let conversation = Conversation(model: defaultModel); context.insert(conversation); selection = conversation; try? context.save(); dismiss()
+        let conversation = Conversation(model: defaultModel); context.insert(conversation); selection = conversation; try? context.save(); onClose()
     }
 
     private func remove(_ conversation: Conversation) {
