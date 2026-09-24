@@ -1,7 +1,7 @@
 export type TaskKind = "one_off" | "recurring" | "monitor";
 export type ScheduleType = "once" | "rrule" | "cron";
 export interface TaskSchedule { type: ScheduleType; expression: string; timezone: string }
-export interface TaskDraft { title: string; kind: TaskKind; schedule: TaskSchedule; prompt: string; tools: string[]; notify: boolean }
+export interface TaskDraft { title: string; kind: TaskKind; schedule: TaskSchedule; prompt: string; tools: string[]; notify: boolean; knowledge_base_ids: string[] }
 
 export class AppError extends Error {
   constructor(public code: string, message: string, public status = 400, public retryable = false) { super(message); }
@@ -18,7 +18,7 @@ export function validTimezone(value: string): boolean {
 export function validateDraft(value: unknown, now = new Date()): TaskDraft {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new AppError("invalid_task", "Task must be an object");
   const x = value as Record<string, unknown>;
-  if (Object.keys(x).some(k => !["title", "kind", "schedule", "prompt", "tools", "notify"].includes(k))) throw new AppError("invalid_task", "Unknown task field");
+  if (Object.keys(x).some(k => !["title", "kind", "schedule", "prompt", "tools", "notify", "knowledge_base_ids"].includes(k))) throw new AppError("invalid_task", "Unknown task field");
   if (typeof x.title !== "string" || !x.title.trim() || x.title.length > 120) throw new AppError("invalid_task", "Invalid title");
   if (typeof x.kind !== "string" || !allowedKinds.has(x.kind)) throw new AppError("invalid_task", "Invalid task kind");
   if (!x.schedule || typeof x.schedule !== "object" || Array.isArray(x.schedule)) throw new AppError("invalid_task", "Invalid schedule");
@@ -27,12 +27,14 @@ export function validateDraft(value: unknown, now = new Date()): TaskDraft {
   if (typeof x.prompt !== "string" || !x.prompt || x.prompt.length > 20_000) throw new AppError("invalid_task", "Invalid prompt");
   if (!Array.isArray(x.tools) || x.tools.length > 3 || new Set(x.tools).size !== x.tools.length || x.tools.some(t => typeof t !== "string" || !allowedTools.has(t))) throw new AppError("invalid_task", "Invalid tools");
   if (typeof x.notify !== "boolean") throw new AppError("invalid_task", "Invalid notify");
+  const knowledgeBaseIDs = x.knowledge_base_ids ?? [];
+  if (!Array.isArray(knowledgeBaseIDs) || knowledgeBaseIDs.length > 20 || new Set(knowledgeBaseIDs).size !== knowledgeBaseIDs.length || knowledgeBaseIDs.some(id => typeof id !== "string" || !/^[A-Za-z0-9-]{1,64}$/.test(id))) throw new AppError("invalid_task", "Invalid knowledge_base_ids");
   if (x.kind === "one_off" && s.type !== "once") throw new AppError("invalid_task", "One-off tasks require once schedule");
   if (x.kind !== "one_off" && s.type === "once") throw new AppError("invalid_task", "Recurring tasks require cron or rrule");
   if (s.type === "once") { const t = Date.parse(s.expression); if (!Number.isFinite(t) || t <= now.getTime()) throw new AppError("invalid_task", "One-off time must be in the future"); }
   if (s.type === "cron" && cronValues(parseCron(s.expression)[0], 0, 59).length > 1) throw new AppError("interval_too_short", "Recurring interval must be at least one hour");
   if (s.type === "rrule" && rruleMinutes(s.expression) < 60) throw new AppError("interval_too_short", "Recurring interval must be at least one hour");
-  return value as TaskDraft;
+  return {...x, knowledge_base_ids: knowledgeBaseIDs} as unknown as TaskDraft;
 }
 
 type Cron = [string, string, string, string, string];

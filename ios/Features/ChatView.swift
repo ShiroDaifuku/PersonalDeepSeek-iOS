@@ -27,6 +27,9 @@ struct ChatView: View {
     @State private var showingCamera = false
     @State private var attachmentError: String?
     @State private var pendingTaskAction: PendingTaskAction?
+    @State private var pendingKnowledgeAction: PendingKnowledgeAction?
+    @State private var knowledgeImportTarget: LocalKnowledgeBase?
+    @State private var showingKnowledgeImporter = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,8 +70,10 @@ struct ChatView: View {
         .sheet(isPresented: $showingConversations) { ConversationListView(selection: $current, defaultModel: defaultModel) }
         .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
         .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { confirmTask(action) }, onCancel: { cancelTask(action) }) }
+        .sheet(item: $pendingKnowledgeAction) { pending in KnowledgeToolConfirmationView(pending: pending, onConfirm: { confirmKnowledge(pending) }, onCancel: { pendingKnowledgeAction = nil }) }
         .fullScreenCover(isPresented: $showingCamera) { CameraPicker { data in if let data, let value = PendingAttachment.image(data: data, name: "camera.jpg") { attachments.append(value) } } }
         .fileImporter(isPresented: $showingFilePicker, allowedContentTypes: [.image, .plainText, .json, .pdf], allowsMultipleSelection: true) { result in importFiles(result) }
+        .fileImporter(isPresented: $showingKnowledgeImporter, allowedContentTypes: [.pdf, .plainText, .json, .commaSeparatedText, .xml], allowsMultipleSelection: true) { result in importKnowledgeFiles(result) }
         .onChange(of: photoSelection) { _, selection in loadPhotos(selection) }
         .alert("无法添加附件", isPresented: Binding(get: { attachmentError != nil }, set: { if !$0 { attachmentError = nil } })) { Button("好") {} } message: { Text(attachmentError ?? "") }
     }
@@ -115,7 +120,8 @@ struct ChatView: View {
                 let tasks = (try? await taskAPI?.list()) ?? []
                 let preferredTool = AssistantIntentRouter.preferredTool(for: requestText)
                 let calls: [AssistantToolCall]
-                do { calls = try await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks, preferredTool: preferredTool) }
+                let knowledgeDescriptors = LocalKnowledgeCloudSync.descriptors(from: knowledgeBases)
+                do { calls = try await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks, knowledgeBases: knowledgeDescriptors, preferredTool: preferredTool) }
                 catch {
                     if preferredTool != nil { throw NSError(domain: "AssistantTools", code: 1, userInfo: [NSLocalizedDescriptionKey: "工具规划失败：\(error.localizedDescription)"] ) }
                     calls = []
@@ -137,9 +143,14 @@ struct ChatView: View {
                     case .editTask(let taskID, let draft, let enabled):
                         guard let task = tasks.first(where: { $0.id == taskID }) else { throw NSError(domain: "AssistantTools", code: 404, userInfo: [NSLocalizedDescriptionKey: "找不到要编辑的定时任务，请先打开任务页刷新。"] ) }
                         pendingTaskAction = .init(mode: .edit(task), draft: draft, enabled: enabled)
+                    case .manageKnowledge(let action):
+                        try prepareKnowledgeAction(action, assistant: assistant)
                     }
                 }
-                if pendingTaskAction != nil { assistant.content = "我已经整理好定时任务变更。请在确认页核对时间、时区、提示词、联网工具和通知设置；确认前不会保存。" }
+                if pendingTaskAction != nil { assistant.content = "我已经整理好定时任务变更。请在确认页核对时间、时区、提示词、联网工具、知识库和通知设置；确认前不会保存。" }
+                else if pendingKnowledgeAction != nil { assistant.content = "我已经准备好知识库变更，请在确认页核对；确认前不会修改本地资料。" }
+                else if showingKnowledgeImporter { assistant.content = "请选择要导入的文件；文件会在本机解析并建立索引。" }
+                else if !assistant.content.isEmpty { /* Immediate local tool result is already complete. */ }
                 else {
                     toolStatus = referenceSections.isEmpty ? "正在生成回答…" : "工具执行完成，正在整理回答…"
                     let requestMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, knowledgeContext: referenceSections.joined(separator: "\n\n"), newUserText: requestText, imageDataURLs: imageDataURLs)
@@ -160,10 +171,9 @@ struct ChatView: View {
 
     private func confirmTask(_ action: PendingTaskAction) {
         guard let api = taskAPI else { errorText = "请先在设置中填写云端任务访问令牌"; pendingTaskAction = nil; return }
-        let snapshot = LocalKnowledgeIndex.attachingContext(to: action.draft, results: LocalKnowledgeIndex.search(action.draft.prompt, in: knowledgeBases, limit: 4))
         Task {
             do {
-                switch action.mode { case .create: _ = try await api.create(snapshot); case .edit(let task): _ = try await api.update(task, draft: snapshot, enabled: action.enabled) }
+                switch action.mode { case .create: _ = try await api.create(action.draft); case .edit(let task): _ = try await api.update(task, draft: action.draft, enabled: action.enabled) }
                 appendAssistant(action.mode == .create ? "定时任务已创建。你可以在“任务”页暂停、编辑或查看执行记录。" : "定时任务已更新。")
             } catch { errorText = error.localizedDescription }
             pendingTaskAction = nil
@@ -172,6 +182,57 @@ struct ChatView: View {
 
     private func cancelTask(_ action: PendingTaskAction) { pendingTaskAction = nil; appendAssistant(action.mode == .create ? "已取消创建定时任务。" : "已取消编辑定时任务。") }
     @MainActor private func appendAssistant(_ text: String) { guard let current else { return }; context.insert(ChatMessage(role: "assistant", content: text, conversation: current)); try? context.save() }
+
+    @MainActor private func prepareKnowledgeAction(_ action: KnowledgeManagementAction, assistant: ChatMessage) throws {
+        if action.action == "list" {
+            assistant.content = knowledgeBases.isEmpty ? "当前没有知识库。" : knowledgeBases.map { "- \($0.name)：\($0.documents.count) 个文档，\($0.enabled ? "已启用" : "已停用")，\(LocalKnowledgeCloudSync.isEnabled($0.id) ? "已选择云同步" : "仅本机")" }.joined(separator: "\n")
+            return
+        }
+        if action.action == "create" {
+            guard !action.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw NSError(domain: "KnowledgeTool", code: 400, userInfo: [NSLocalizedDescriptionKey: "知识库名称不能为空。"] ) }
+            pendingKnowledgeAction = .init(action: action, currentName: nil); return
+        }
+        guard let id = UUID(uuidString: action.knowledgeBaseID), let base = knowledgeBases.first(where: { $0.id == id }) else { throw NSError(domain: "KnowledgeTool", code: 404, userInfo: [NSLocalizedDescriptionKey: "找不到指定知识库，请让 AI 先列出知识库。"] ) }
+        if action.action == "import" { knowledgeImportTarget = base; showingKnowledgeImporter = true; return }
+        pendingKnowledgeAction = .init(action: action, currentName: base.name)
+    }
+
+    @MainActor private func confirmKnowledge(_ pending: PendingKnowledgeAction) {
+        let action = pending.action
+        if action.action == "create" {
+            context.insert(LocalKnowledgeBase(name: action.name.trimmingCharacters(in: .whitespacesAndNewlines)))
+        } else if let id = UUID(uuidString: action.knowledgeBaseID), let base = knowledgeBases.first(where: { $0.id == id }) {
+            switch action.action {
+            case "rename": base.name = action.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            case "enable": base.enabled = true
+            case "disable": base.enabled = false
+            case "delete": LocalKnowledgeCloudSync.setEnabled(false, for: base.id); context.delete(base)
+            default: break
+            }
+        }
+        do { try context.save(); appendAssistant("知识库变更已完成。") } catch { errorText = error.localizedDescription }
+        pendingKnowledgeAction = nil
+        Task { await syncKnowledgeIfConfigured() }
+    }
+
+    @MainActor private func importKnowledgeFiles(_ result: Result<[URL], Error>) {
+        guard let target = knowledgeImportTarget else { return }
+        Task {
+            do {
+                let urls = try result.get()
+                for url in urls { try await LocalKnowledgeImporter.importFile(url, into: target, context: context) }
+                appendAssistant("已向“\(target.name)”导入并索引 \(urls.count) 个文件。")
+                await syncKnowledgeIfConfigured()
+            } catch { errorText = error.localizedDescription }
+            knowledgeImportTarget = nil
+        }
+    }
+
+    @MainActor private func syncKnowledgeIfConfigured() async {
+        guard !LocalKnowledgeCloudSync.enabledIDs.isEmpty, let url = URL(string: cloudServiceURL), !userID.isEmpty else { return }
+        do { try await KnowledgeSyncAPI(base: url, userID: userID).replaceAll(LocalKnowledgeCloudSync.payloads(from: knowledgeBases)) }
+        catch { errorText = "本地变更已保存，但云端知识库同步失败：\(error.localizedDescription)" }
+    }
 
     private func loadPhotos(_ selection: [PhotosPickerItem]) {
         Task { var loaded: [PendingAttachment] = []; for (index, item) in selection.enumerated() { if let data = try? await item.loadTransferable(type: Data.self), let attachment = PendingAttachment.image(data: data, name: "photo-\(index + 1).jpg") { loaded.append(attachment) } }; attachments.append(contentsOf: loaded); photoSelection = [] }
@@ -224,8 +285,31 @@ private struct TaskToolConfirmationView: View {
                 }
                 Section("执行提示词") { Text(action.draft.prompt).textSelection(.enabled) }
                 Section("工具") { Text(action.draft.tools.joined(separator: "、")) }
-                Section { Text("确认后才会写入云端。若引用本地知识库，只上传本次检索到的少量相关片段。") }.font(.caption).foregroundStyle(.secondary)
+                if !action.draft.knowledgeBaseIDs.isEmpty { Section("动态知识库") { Text("任务运行时会检索 \(action.draft.knowledgeBaseIDs.count) 个已同步知识库。") } }
+                Section { Text("确认后才会写入云端。任务只会访问你在资料库页明确开启并完成同步的知识库。") }.font(.caption).foregroundStyle(.secondary)
             }.navigationTitle("确认定时任务").toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消", role: .cancel, action: onCancel) }; ToolbarItem(placement: .confirmationAction) { Button("确认保存", action: onConfirm) } }
         }
     }
+}
+
+private struct KnowledgeToolConfirmationView: View {
+    let pending: PendingKnowledgeAction
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("AI 建议的本地操作") {
+                    LabeledContent("操作", value: label)
+                    if let currentName = pending.currentName { LabeledContent("知识库", value: currentName) }
+                    if !pending.action.name.isEmpty { LabeledContent("新名称", value: pending.action.name) }
+                }
+                if pending.action.action == "delete" { Section { Label("删除会同时移除其中全部本地文档与索引，且不可撤销。", systemImage: "exclamationmark.triangle").foregroundStyle(.red) } }
+                Section { Text("确认前不会修改任何本地资料；云同步仍只对你手动开启的知识库生效。") }.font(.caption).foregroundStyle(.secondary)
+            }
+            .navigationTitle("确认知识库操作")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消", role: .cancel, action: onCancel) }; ToolbarItem(placement: .confirmationAction) { Button("确认", role: pending.action.action == "delete" ? .destructive : nil, action: onConfirm) } }
+        }
+    }
+    private var label: String { ["create":"创建", "rename":"重命名", "enable":"启用", "disable":"停用", "delete":"删除"][pending.action.action] ?? pending.action.action }
 }

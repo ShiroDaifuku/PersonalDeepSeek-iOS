@@ -15,6 +15,8 @@ struct KnowledgeBaseView: View {
     @State private var newName = ""
     @State private var status: String?
     @State private var loading = false
+    @AppStorage("cloudServiceURL") private var cloudServiceURL = CloudServiceDefaults.baseURL
+    @AppStorage("opaqueUserID") private var userID = ""
 
     var body: some View {
         List {
@@ -27,7 +29,7 @@ struct KnowledgeBaseView: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(item.name).font(.headline)
-                                Text("\(item.documents.count) 个文档 · 仅本机").font(.caption).foregroundStyle(.secondary)
+                                Text("\(item.documents.count) 个文档 · \(LocalKnowledgeCloudSync.isEnabled(item.id) ? "已选择云同步" : "仅本机")").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Toggle("启用", isOn: Binding(get: { item.enabled }, set: { setEnabled(item, $0) })).labelsHidden()
@@ -37,10 +39,17 @@ struct KnowledgeBaseView: View {
                             Spacer()
                             NavigationLink { LocalKnowledgeDocumentsView(knowledgeBase: item) } label: { Label("文件列表", systemImage: "list.bullet.rectangle") }
                         }
+                        Toggle("允许云端定时任务检索", isOn: Binding(get: { LocalKnowledgeCloudSync.isEnabled(item.id) }, set: { LocalKnowledgeCloudSync.setEnabled($0, for: item.id) }))
+                            .font(.caption)
                     }
                     .padding(.vertical, 3)
                     .swipeActions { Button("删除", role: .destructive) { remove(item) } }
                 }
+            }
+            Section("云端知识库") {
+                Button(loading ? "正在同步…" : "立即同步所选知识库") { syncToCloud() }.disabled(loading || LocalKnowledgeCloudSync.enabledIDs.isEmpty)
+                Text("只有明确开启的知识库会上传文本片段。云端定时任务执行时检索最新一次同步的内容；关闭后再次同步会从云端删除副本。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("本地检索") {
                 Picker("范围", selection: $selectedKnowledgeBaseID) {
@@ -89,7 +98,18 @@ struct KnowledgeBaseView: View {
 
     private func remove(_ item: LocalKnowledgeBase) {
         if selectedKnowledgeBaseID == item.id { selectedKnowledgeBaseID = nil; results = [] }
+        LocalKnowledgeCloudSync.setEnabled(false, for: item.id)
         context.delete(item); try? context.save()
+    }
+
+    private func syncToCloud() {
+        guard let url = URL(string: cloudServiceURL), url.scheme == "https", !userID.isEmpty else { status = "请先在设置中配置云端任务服务"; return }
+        loading = true
+        Task {
+            do { try await KnowledgeSyncAPI(base: url, userID: userID).replaceAll(LocalKnowledgeCloudSync.payloads(from: knowledgeBases)); status = "云端知识库已同步" }
+            catch { status = error.localizedDescription }
+            loading = false
+        }
     }
 
     private func runQuery() {
@@ -103,42 +123,13 @@ struct KnowledgeBaseView: View {
         Task {
             do {
                 let urls = try result.get()
-                for url in urls { try await importFile(url, into: target) }
+                for url in urls { try await LocalKnowledgeImporter.importFile(url, into: target, context: context) }
                 status = "已在本机索引 \(urls.count) 个文件"
             } catch { status = error.localizedDescription }
             loading = false
         }
     }
 
-    private func importFile(_ url: URL, into knowledgeBase: LocalKnowledgeBase) async throws {
-        let accessing = url.startAccessingSecurityScopedResource()
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        guard data.count <= 5_000_000 else { throw NSError(domain: "LocalKnowledge", code: 1, userInfo: [NSLocalizedDescriptionKey: "单个文档不能超过 5 MB。"] ) }
-        let detected = UTType(filenameExtension: url.pathExtension)
-        let mediaType = detected?.preferredMIMEType ?? "text/plain"
-        let text: String
-        if detected?.conforms(to: .pdf) == true {
-            guard let pdf = PDFDocument(data: data) else { throw NSError(domain: "LocalKnowledge", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法读取 PDF。"] ) }
-            text = (0..<pdf.pageCount).compactMap { pdf.page(at: $0)?.string }.joined(separator: "\n\n")
-        } else {
-            guard let decoded = String(data: data, encoding: .utf8) else { throw NSError(domain: "LocalKnowledge", code: 3, userInfo: [NSLocalizedDescriptionKey: "文件不是有效的 UTF-8 文本。"] ) }
-            text = decoded
-        }
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw NSError(domain: "LocalKnowledge", code: 4, userInfo: [NSLocalizedDescriptionKey: "文件没有可提取文字；扫描版 PDF 后续可通过 OCR 导入。"] )
-        }
-        let indexed = await Task.detached(priority: .userInitiated) {
-            LocalKnowledgeIndex.chunk(text).enumerated().map { ($0.offset, $0.element, LocalKnowledgeIndex.encode(LocalKnowledgeIndex.embedding(for: $0.element))) }
-        }.value
-        let document = LocalKnowledgeDocument(name: url.lastPathComponent, mediaType: mediaType, byteCount: data.count, knowledgeBase: knowledgeBase)
-        context.insert(document); knowledgeBase.documents.append(document)
-        for value in indexed {
-            let chunk = LocalKnowledgeChunk(index: value.0, text: value.1, embedding: value.2, document: document)
-            context.insert(chunk); document.chunks.append(chunk)
-        }
-        try context.save()
-    }
 }
 
 private struct LocalKnowledgeDocumentsView: View {

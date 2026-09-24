@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+import PDFKit
+import SwiftData
+import UniformTypeIdentifiers
 
 struct LocalKnowledgeResult: Identifiable, Equatable, Sendable {
     let id: UUID
@@ -70,20 +73,50 @@ enum LocalKnowledgeIndex {
     static func search(_ query: String, in knowledgeBases: [LocalKnowledgeBase], limit: Int = 8, minimumScore: Double = 0.05) -> [LocalKnowledgeResult] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let target = embedding(for: query)
-        return knowledgeBases.filter(\.enabled).flatMap { knowledgeBase in
+        let queryTerms = terms(in: query)
+        let candidates = knowledgeBases.filter(\.enabled).flatMap { knowledgeBase in
             knowledgeBase.documents.flatMap { document in
-                document.chunks.compactMap { chunk -> LocalKnowledgeResult? in
+                document.chunks.map { (knowledgeBase, document, $0) }
+            }
+        }
+        let documentCount = Double(max(candidates.count, 1))
+        let documentFrequency = Dictionary(uniqueKeysWithValues: queryTerms.map { term in
+            (term, Double(candidates.filter { terms(in: $0.2.text).contains(term) }.count))
+        })
+        let averageLength = max(1, Double(candidates.reduce(0) { $0 + terms(in: $1.2.text).count }) / documentCount)
+        return candidates.compactMap { knowledgeBase, document, chunk -> LocalKnowledgeResult? in
                     let value = decode(chunk.embedding)
                     guard value.count == target.count else { return nil }
-                    let score = zip(target, value).reduce(Float.zero) { $0 + $1.0 * $1.1 }
-                    guard Double(score) >= minimumScore else { return nil }
-                    return .init(id: chunk.id, knowledgeBaseID: knowledgeBase.id, documentID: document.id, documentName: document.name, index: chunk.index, text: chunk.text, score: Double(score))
-                }
-            }
+                    let semantic = max(0, Double(zip(target, value).reduce(Float.zero) { $0 + $1.0 * $1.1 }))
+                    let chunkTerms = terms(in: chunk.text)
+                    var counts: [String: Int] = [:]; chunkTerms.forEach { counts[$0, default: 0] += 1 }
+                    let length = Double(max(chunkTerms.count, 1)), k1 = 1.2, b = 0.75
+                    let lexical = queryTerms.reduce(0.0) { partial, term in
+                        let frequency = Double(counts[term, default: 0]); guard frequency > 0 else { return partial }
+                        let df = documentFrequency[term, default: 0]
+                        let idf = log(1 + (documentCount - df + 0.5) / (df + 0.5))
+                        return partial + idf * frequency * (k1 + 1) / (frequency + k1 * (1 - b + b * length / averageLength))
+                    }
+                    let phraseBonus = chunk.text.localizedCaseInsensitiveContains(query.trimmingCharacters(in: .whitespacesAndNewlines)) ? 1.0 : 0.0
+                    let normalizedLexical = lexical == 0 ? 0 : lexical / (lexical + 1)
+                    let score = 0.55 * normalizedLexical + 0.35 * semantic + 0.10 * phraseBonus
+                    guard score >= minimumScore, lexical > 0 || semantic >= 0.18 else { return nil }
+                    return .init(id: chunk.id, knowledgeBaseID: knowledgeBase.id, documentID: document.id, documentName: document.name, index: chunk.index, text: chunk.text, score: score)
         }
         .sorted { $0.score > $1.score }
         .prefix(max(1, min(limit, 20)))
         .map { $0 }
+    }
+
+    private static func terms(in text: String) -> [String] {
+        var values = text.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "_" }.map(String.init)
+        let cjk = text.lowercased().filter { $0.unicodeScalars.contains(where: isCJK) }
+        if !cjk.isEmpty {
+            values.append(contentsOf: cjk.map(String.init))
+            let characters = Array(cjk)
+            if characters.count > 1 { values.append(contentsOf: (0..<(characters.count - 1)).map { String([characters[$0], characters[$0 + 1]]) }) }
+        }
+        return values
     }
 
     static func context(from results: [LocalKnowledgeResult]) -> String {
@@ -102,5 +135,34 @@ enum LocalKnowledgeIndex {
         case 0x3400...0x9FFF, 0x3040...0x30FF, 0xAC00...0xD7AF: true
         default: false
         }
+    }
+}
+
+@MainActor enum LocalKnowledgeImporter {
+    static func importFile(_ url: URL, into knowledgeBase: LocalKnowledgeBase, context: ModelContext) async throws {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard data.count <= 5_000_000 else { throw NSError(domain: "LocalKnowledge", code: 1, userInfo: [NSLocalizedDescriptionKey: "单个文档不能超过 5 MB。"] ) }
+        let detected = UTType(filenameExtension: url.pathExtension), mediaType = detected?.preferredMIMEType ?? "text/plain"
+        let text: String
+        if detected?.conforms(to: .pdf) == true {
+            guard let pdf = PDFDocument(data: data) else { throw NSError(domain: "LocalKnowledge", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法读取 PDF。"] ) }
+            text = (0..<pdf.pageCount).compactMap { pdf.page(at: $0)?.string }.joined(separator: "\n\n")
+        } else {
+            guard let decoded = String(data: data, encoding: .utf8) else { throw NSError(domain: "LocalKnowledge", code: 3, userInfo: [NSLocalizedDescriptionKey: "文件不是有效的 UTF-8 文本。"] ) }
+            text = decoded
+        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw NSError(domain: "LocalKnowledge", code: 4, userInfo: [NSLocalizedDescriptionKey: "文件没有可提取文字；扫描版 PDF 后续可通过 OCR 导入。"] ) }
+        let indexed = await Task.detached(priority: .userInitiated) {
+            LocalKnowledgeIndex.chunk(text).enumerated().map { ($0.offset, $0.element, LocalKnowledgeIndex.encode(LocalKnowledgeIndex.embedding(for: $0.element))) }
+        }.value
+        let document = LocalKnowledgeDocument(name: url.lastPathComponent, mediaType: mediaType, byteCount: data.count, knowledgeBase: knowledgeBase)
+        context.insert(document); knowledgeBase.documents.append(document)
+        for value in indexed {
+            let chunk = LocalKnowledgeChunk(index: value.0, text: value.1, embedding: value.2, document: document)
+            context.insert(chunk); document.chunks.append(chunk)
+        }
+        try context.save()
     }
 }

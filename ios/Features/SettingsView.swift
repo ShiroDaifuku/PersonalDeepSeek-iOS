@@ -30,7 +30,7 @@ struct SettingsView: View {
                 Button("删除服务令牌", role: .destructive) { KeychainStore.deleteCloudServiceToken() }
                 Button(checking ? "正在测试…" : "测试云端任务服务") { testCloudService() }.disabled(checking)
                 if let connectionStatus { Text(connectionStatus).font(.caption).foregroundStyle(connectionStatus == "连接成功" ? .green : .red) }
-                Text("仅定时任务、执行历史和推送使用该服务；不上传本地资料库。")
+                Text("定时任务、执行历史和推送使用该服务。知识库默认不上传；只有你在资料库页逐个开启并主动同步的内容，才可供云端任务检索。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("本地联网研究") {
@@ -54,8 +54,8 @@ struct SettingsView: View {
             }
             Section("说明") { Text("App 会自动路由：交互功能在本机执行，必须在手机离线时运行的任务交给云端。不需要切换连接模式。") }
             Section("版本") {
-                LabeledContent("客户端", value: "0.4.0 (13)")
-                LabeledContent("工具路由", value: "v2 · 明确意图强制调用")
+                LabeledContent("客户端", value: "0.5.0 (14)")
+                LabeledContent("工具路由", value: "v3 · 知识库管理与动态任务检索")
             }
         }.navigationTitle("设置").onAppear { if userID.isEmpty { userID = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") } }
     }

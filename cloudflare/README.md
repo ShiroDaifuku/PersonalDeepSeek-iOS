@@ -1,13 +1,14 @@
 # Cloudflare task service
 
-This Worker is the authoritative scheduler for PersonalDeepSeek. Chat, research,
-and the knowledge base stay on the iPhone; only confirmed task prompts and their
-execution results are stored in D1.
+This Worker is the authoritative scheduler for PersonalDeepSeek. Chat and
+interactive research stay on the iPhone. Knowledge bases remain local by
+default; a user may explicitly select individual bases for cloud-task sync.
 
 ## Components
 
 - Worker HTTP API: same `/v1/tasks`, run-history, device-token contract as iOS.
-- D1: tasks, execution history, idempotent scheduler claims, APNs registrations.
+- D1: tasks, execution history, idempotent scheduler claims, APNs registrations,
+  and explicitly synced knowledge chunks.
 - Cron Trigger: scans due tasks every minute.
 - Queue: executes DeepSeek calls with retry and a dead-letter queue.
 - Worker secrets: app access token, DeepSeek key, optional Brave/APNs credentials.
@@ -40,6 +41,10 @@ values are present.
 The iOS Cloud task service URL is the deployed `workers.dev` URL. Store the same
 `APP_ACCESS_TOKEN` in the app's Cloud service token field. `GET /health` is
 public; every `/v1/*` route requires both the bearer token and `X-User-ID`.
+
+`PUT /v1/knowledge/sync` replaces the current user's cloud knowledge copy.
+Limits are 20 bases, 2,000 chunks, and 8 MB of UTF-8 text. A task stores selected
+knowledge-base IDs and retrieves the newest synced chunks at execution time.
 
 ## Local checks
 
