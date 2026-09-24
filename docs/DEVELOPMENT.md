@@ -10,16 +10,17 @@
 - DeepSeek Chat Completions SSE，区分 `reasoning_content` 与 `content`，忽略空行和 `: keep-alive`，支持 CRLF、分片、usage 与 `[DONE]`。
 - 流开始前的 429/5xx 有界指数退避；流中断显式报错，不自动重复生成；网络超时覆盖服务端十分钟未开始推理的边界。
 - 模型名、thinking 和 reasoning effort 设置；思考内容折叠；系统 Markdown、复制和分享。
-- 自然语言任务由 strict tool call 转成共享 Schema；客户端必须预览确认后才保存。
+- 对话前置规划器使用 strict Tool Calls，自主选择本地知识库、端上深度研究、创建任务或编辑任务；任务变更必须预览确认后才保存。
 - 任务 CRUD、暂停/恢复、删除、到期执行、运行历史、最短一小时、每日次数、连续未读暂停、月预算降级到 `deepseek-flash` 与硬熔断。
 - 多会话选择、新建、删除，以及会话级标题、模型名和自定义 system 指令。
 - Dockerfile、Compose、持久化卷、健康检查、自动调度循环和 SIGINT/SIGTERM 优雅退出。
 - JSON 文件持久化位于仓储接口之后，可替换为 PostgreSQL。后端没有 Key 仍可启动和响应健康检查。
 - 后端保留兼容性的 Files/搜索/抓取接口，并实现定时任务、APNs 设备/Live Activity token 与通知状态；日常聊天与研究不依赖后端在线。
 - iOS 相册多图、相机、附件预览/移除和 base64 `image_url`；文本/JSON 聊天附件，PDF 在知识库页用 PDFKit 提取文本。
-- SwiftData 本地知识库创建、启停、导入、文件列表/删除和查询；聊天自动检索启用知识库，在本轮最后一条 user 消息前插入不可信引用上下文，从而保持既有 system+历史前缀稳定。
+- SwiftData 本地知识库创建、启停、导入、文件列表/删除和查询；模型选择检索工具后才检索并在本轮 user 消息前插入不可信引用上下文，从而保持既有 system+历史前缀稳定。
 - 本地深度研究初版：Brave Search 搜索、并发 HTTPS 抓取、网页正文提取、本地知识库融合、DeepSeek 流式汇总与编号引用，全程由 iPhone 编排。
-- WidgetKit 会话/任务摘要、生成与任务 Live Activity、App Group 离线快照，以及 iOS 26 AlarmKit 一次性/固定每周强提醒。
+- 主流左右气泡聊天布局、WidgetKit 会话/任务摘要、仅后台生成时启用的 Live Activity、App Group 离线快照，以及 iOS 26 AlarmKit 一次性/固定每周强提醒。
+- `cloudflare/` 提供已部署形态的 Workers + D1 + Queue + Cron 权威任务服务；端上预置公开服务地址，访问令牌仍只进 Keychain。
 
 ## 明确延期
 
