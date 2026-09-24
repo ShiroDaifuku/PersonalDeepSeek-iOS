@@ -22,8 +22,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.personal.deepseek
         PRODUCT_NAME: PersonalDeepSeek
-        MARKETING_VERSION: 0.5.0
-        CURRENT_PROJECT_VERSION: 14
+        MARKETING_VERSION: 0.6.0
+        CURRENT_PROJECT_VERSION: 15
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: App/PersonalDeepSeek.entitlements

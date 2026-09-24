@@ -61,7 +61,19 @@ struct ChatView: View {
                 .background(Color(.systemGroupedBackground))
             } else { ContentUnavailableView("开始对话", systemImage: "sparkles", description: Text("对话、知识库和研究都在这台设备上编排。")) }
             if let toolStatus, isStreaming {
-                Label(toolStatus, systemImage: "wand.and.stars").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 6).frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    MascotVideoView(mode: .thinking, isPlaying: scenePhase == .active && !showingConversations)
+                        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                        .frame(width: 54, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .overlay { RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 1) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("正在思考", systemImage: "brain.head.profile").font(.caption.weight(.semibold))
+                        Text(toolStatus).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12).padding(.top, 6)
             }
             if let errorText { Text(errorText).foregroundStyle(.red).font(.caption).padding(.horizontal) }
             if !attachments.isEmpty { AttachmentStrip(attachments: attachments) { id in attachments.removeAll { $0.id == id } } }
@@ -74,7 +86,12 @@ struct ChatView: View {
         if showingConversations {
             Color.black.opacity(0.22).ignoresSafeArea().onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
             HStack(spacing: 0) {
-                ConversationSidebarView(selection: $current, defaultModel: defaultModel) { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
+                ConversationSidebarView(
+                    selection: $current,
+                    defaultModel: defaultModel,
+                    isThinking: isStreaming,
+                    animationActive: scenePhase == .active
+                ) { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
                     .frame(width: min(UIScreen.main.bounds.width * 0.86, 350)).frame(maxHeight: .infinity).shadow(color: .black.opacity(0.18), radius: 18, x: 8)
                 Spacer(minLength: 0)
             }.transition(.move(edge: .leading))

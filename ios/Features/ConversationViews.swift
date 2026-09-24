@@ -6,6 +6,8 @@ struct ConversationSidebarView: View {
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @Binding var selection: Conversation?
     let defaultModel: String
+    let isThinking: Bool
+    let animationActive: Bool
     let onClose: () -> Void
     @State private var search = ""
 
@@ -26,6 +28,25 @@ struct ConversationSidebarView: View {
                 if filtered.isEmpty { ContentUnavailableView("暂无会话", systemImage: "bubble.left.and.bubble.right") }
             }
             .listStyle(.plain)
+            VStack(spacing: 0) {
+                MascotVideoView(mode: isThinking ? .thinking : .idle, isPlaying: animationActive)
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .frame(maxHeight: 196)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        Label(isThinking ? "思考中" : "待机", systemImage: isThinking ? "brain.head.profile" : "sparkles")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(8)
+                    }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12).padding(.bottom, 10)
         }.background(.regularMaterial)
     }
 
