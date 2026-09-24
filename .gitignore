@@ -9,3 +9,7 @@ ios/PersonalDeepSeek.xcodeproj/
 gittoken.txt
 cloudflare-token.txt
 cloudflare-account-id.txt
+cloudflare/node_modules/
+cloudflare/.wrangler/
+cloudflare/.dev.vars
+cloudflare-access-token.txt

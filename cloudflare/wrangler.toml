@@ -1,0 +1,35 @@
+name = "personal-deepseek-tasks"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "personal-deepseek-tasks"
+database_id = "60ecd0c3-14ad-4520-9095-8e9b2c533da3"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "TASK_QUEUE"
+queue = "personal-deepseek-task-runs"
+
+[[queues.consumers]]
+queue = "personal-deepseek-task-runs"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "personal-deepseek-task-runs-dlq"
+
+[vars]
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_TASK_MODEL = "deepseek-flash"
+DEFAULT_MODEL = "deepseek-chat"
+FALLBACK_MODEL = "deepseek-flash"
+DAILY_RUN_LIMIT = "24"
+UNREAD_PAUSE_LIMIT = "5"
+MONTHLY_BUDGET_MICROS = "5000000"
+INPUT_COST_MICROS_PER_MILLION = "280000"
+OUTPUT_COST_MICROS_PER_MILLION = "420000"
