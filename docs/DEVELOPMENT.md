@@ -11,6 +11,7 @@
 - 流开始前的 429/5xx 有界指数退避；流中断显式报错，不自动重复生成；网络超时覆盖服务端十分钟未开始推理的边界。
 - 模型名、thinking 和 reasoning effort 设置；思考内容折叠；系统 Markdown、复制和分享。
 - 对话前置规划器使用 strict Tool Calls，自主选择本地知识库、端上深度研究、创建任务或编辑任务；任务变更必须预览确认后才保存。
+- 明确的时间/周期/提醒、研究和私有资料表达由本地意图门控选择对应 Tool Call，避免 `tool_choice: auto` 错误跳过；强制工具失败会显示错误而非静默退回普通聊天。
 - 任务 CRUD、暂停/恢复、删除、到期执行、运行历史、最短一小时、每日次数、连续未读暂停、月预算降级到 `deepseek-flash` 与硬熔断。
 - 多会话选择、新建、删除，以及会话级标题、模型名和自定义 system 指令。
 - Dockerfile、Compose、持久化卷、健康检查、自动调度循环和 SIGINT/SIGTERM 优雅退出。
@@ -20,6 +21,7 @@
 - SwiftData 本地知识库创建、启停、导入、文件列表/删除和查询；模型选择检索工具后才检索并在本轮 user 消息前插入不可信引用上下文，从而保持既有 system+历史前缀稳定。
 - 本地深度研究初版：Brave Search 搜索、并发 HTTPS 抓取、网页正文提取、本地知识库融合、DeepSeek 流式汇总与编号引用，全程由 iPhone 编排。
 - 主流左右气泡聊天布局、WidgetKit 会话/任务摘要、仅后台生成时启用的 Live Activity、App Group 离线快照，以及 iOS 26 AlarmKit 一次性/固定每周强提醒。
+- 回答、研究结果和任务历史使用随 App 打包的 Marked + MathJax SVG 渲染 Markdown、表格、代码块及 `$...$`/`$$...$$` LaTeX，不依赖在线 CDN。
 - `cloudflare/` 提供已部署形态的 Workers + D1 + Queue + Cron 权威任务服务；端上预置公开服务地址，访问令牌仍只进 Keychain。
 
 ## 明确延期

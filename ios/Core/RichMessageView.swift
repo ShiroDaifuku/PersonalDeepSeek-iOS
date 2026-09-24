@@ -106,7 +106,10 @@ private struct MathMarkdownWebView: UIViewRepresentable {
         requestAnimationFrame(() => window.webkit.messageHandlers.contentHeight.postMessage(Math.ceil(document.documentElement.scrollHeight)));
       }
       async function renderMarkdown(encoded) {
-        const source = escapeHTML(decodeBase64(encoded));
+        const normalized = decodeBase64(encoded)
+          .replaceAll('\\[', '$$').replaceAll('\\]', '$$')
+          .replaceAll('\\(', '$').replaceAll('\\)', '$');
+        const source = escapeHTML(normalized);
         if (window.MathJax?.typesetClear) MathJax.typesetClear([root]);
         root.innerHTML = marked.parse(source, { gfm: true, breaks: true });
         secureLinks();

@@ -9,6 +9,8 @@ Also verify:
 - Import a text or text-based PDF into a local knowledge base, then confirm chat and research use relevant excerpts without uploading the full document.
 - Ask a normal question and confirm no tool status persists; ask about a private document and confirm local retrieval runs; explicitly request deep research and confirm sourced synthesis runs.
 - Ask the assistant to create and then edit a task; confirm neither change reaches the server before the confirmation sheet is accepted.
+- Enter `每天上午九点总结我的笔记`; confirm the task tool is forced and a confirmation sheet appears instead of a generic “cannot schedule” response.
+- Ask for inline math, a display equation, a Markdown table, and a fenced code block; enable Airplane Mode after the answer is generated and confirm the bundled renderer still displays all four correctly.
 - Create, switch, rename, and delete conversations; confirm persistence after relaunch.
 - Complete a chat while the app stays foreground and confirm no completed Live Activity remains on the Lock Screen. Background the app during generation and confirm progress appears, then is dismissed immediately if completion happens after returning foreground.
 - Stop a streaming response and confirm partial content remains without a spurious error banner.
