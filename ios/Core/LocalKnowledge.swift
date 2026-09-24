@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import NaturalLanguage
 import PDFKit
 import SwiftData
 import UniformTypeIdentifiers
@@ -39,6 +40,11 @@ enum LocalKnowledgeIndex {
     }
 
     static func embedding(for text: String) -> [Float] {
+        if let value = systemEmbedding(for: text) { return value }
+        return legacyEmbedding(for: text)
+    }
+
+    private static func legacyEmbedding(for text: String) -> [Float] {
         var tokens = text.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "_" }.map(String.init)
         var sequence: [Character] = []
         func appendSequence() {
@@ -72,7 +78,6 @@ enum LocalKnowledgeIndex {
 
     static func search(_ query: String, in knowledgeBases: [LocalKnowledgeBase], limit: Int = 8, minimumScore: Double = 0.05) -> [LocalKnowledgeResult] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-        let target = embedding(for: query)
         let queryTerms = Array(Set(terms(in: query)))
         let candidates = knowledgeBases.filter(\.enabled).flatMap { knowledgeBase in
             knowledgeBase.documents.flatMap { document in
@@ -86,8 +91,8 @@ enum LocalKnowledgeIndex {
         let averageLength = max(1, Double(candidates.reduce(0) { $0 + terms(in: $1.2.text).count }) / documentCount)
         return candidates.compactMap { knowledgeBase, document, chunk -> LocalKnowledgeResult? in
                     let value = decode(chunk.embedding)
-                    guard value.count == target.count else { return nil }
-                    let semantic = max(0, Double(zip(target, value).reduce(Float.zero) { $0 + $1.0 * $1.1 }))
+                    let target = queryEmbedding(for: query, dimensions: value.count)
+                    let semantic = target.count == value.count ? max(0, Double(zip(target, value).reduce(Float.zero) { $0 + $1.0 * $1.1 })) : 0
                     let chunkTerms = terms(in: chunk.text)
                     var counts: [String: Int] = [:]; chunkTerms.forEach { counts[$0, default: 0] += 1 }
                     let length = Double(max(chunkTerms.count, 1)), k1 = 1.2, b = 0.75
@@ -100,12 +105,29 @@ enum LocalKnowledgeIndex {
                     let phraseBonus = chunk.text.localizedCaseInsensitiveContains(query.trimmingCharacters(in: .whitespacesAndNewlines)) ? 1.0 : 0.0
                     let normalizedLexical = lexical == 0 ? 0 : lexical / (lexical + 1)
                     let score = 0.55 * normalizedLexical + 0.35 * semantic + 0.10 * phraseBonus
-                    guard score >= minimumScore, lexical > 0 || semantic >= 0.18 else { return nil }
+                    guard score >= minimumScore, lexical > 0 || semantic >= 0.45 else { return nil }
                     return .init(id: chunk.id, knowledgeBaseID: knowledgeBase.id, documentID: document.id, documentName: document.name, index: chunk.index, text: chunk.text, score: score)
         }
         .sorted { $0.score > $1.score }
         .prefix(max(1, min(limit, 20)))
         .map { $0 }
+    }
+
+    private static func queryEmbedding(for text: String, dimensions: Int) -> [Float] {
+        if dimensions == self.dimensions { return legacyEmbedding(for: text) }
+        let value = systemEmbedding(for: text) ?? []
+        return value.count == dimensions ? value : []
+    }
+
+    private static func systemEmbedding(for text: String) -> [Float]? {
+        let language: NLLanguage
+        if text.unicodeScalars.contains(where: { (0x3040...0x30FF).contains($0.value) }) { language = .japanese }
+        else if text.unicodeScalars.contains(where: { (0xAC00...0xD7AF).contains($0.value) }) { language = .korean }
+        else if text.unicodeScalars.contains(where: { (0x3400...0x9FFF).contains($0.value) }) { language = .simplifiedChinese }
+        else { language = .english }
+        guard let values = NLEmbedding.sentenceEmbedding(for: language)?.vector(for: text), !values.isEmpty else { return nil }
+        let vector = values.map(Float.init), norm = sqrt(vector.reduce(Float.zero) { $0 + $1 * $1 })
+        return norm == 0 ? nil : vector.map { $0 / norm }
     }
 
     private static func terms(in text: String) -> [String] {
