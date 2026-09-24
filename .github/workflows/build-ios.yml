@@ -36,10 +36,9 @@ jobs:
         working-directory: ios
         run: |
           set -euo pipefail
-          destination_id="$(xcodebuild -project PersonalDeepSeek.xcodeproj -scheme PersonalDeepSeek -showdestinations \
-            | sed -n 's/.*platform:iOS Simulator, arch:[^,]*, id:\([^,]*\), OS:[^,]*, name:iPhone.*/\1/p' \
-            | head -n 1 \
-            | xargs)"
+          destination_id="$(xcrun simctl list devices available \
+            | sed -nE '/iPhone/s/.*\(([0-9A-Fa-f-]{36})\) \((Booted|Shutdown)\).*/\1/p' \
+            | sed -n '1p')"
           test -n "$destination_id"
           xcodebuild \
             -project PersonalDeepSeek.xcodeproj \
@@ -47,7 +46,7 @@ jobs:
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$destination_id" \
             -derivedDataPath "$RUNNER_TEMP/TestDerivedData" \
-            test
+            test | tee "$RUNNER_TEMP/xctest.log"
 
       - name: Build unsigned app
         working-directory: ios
@@ -93,6 +92,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-log-${{ github.run_number }}
-          path: ${{ runner.temp }}/xcodebuild.log
+          path: |
+            ${{ runner.temp }}/xcodebuild.log
+            ${{ runner.temp }}/xctest.log
           if-no-files-found: ignore
           retention-days: 7
