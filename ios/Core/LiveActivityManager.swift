@@ -1,5 +1,6 @@
 @preconcurrency import ActivityKit
 import Foundation
+import UIKit
 
 @MainActor
 final class LiveActivityManager {
@@ -7,7 +8,9 @@ final class LiveActivityManager {
     private var activity: Activity<DeepSeekActivityAttributes>?
 
     func start(id: String = UUID().uuidString, title: String, kind: String, detail: String) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard UIApplication.shared.applicationState != .active,
+              ActivityAuthorizationInfo().areActivitiesEnabled,
+              activity == nil else { return }
         let attributes = DeepSeekActivityAttributes(operationID: id, title: title, kind: kind)
         let state = DeepSeekActivityAttributes.ContentState(phase: "running", detail: detail, progress: 0)
         activity = try? Activity.request(attributes: attributes, content: .init(state: state, staleDate: nil), pushType: .token)
@@ -23,7 +26,8 @@ final class LiveActivityManager {
     func finish(detail: String, success: Bool) async {
         let state = DeepSeekActivityAttributes.ContentState(phase: success ? "completed" : "failed", detail: detail, progress: 1)
         guard let currentActivity = activity else { return }
-        await currentActivity.end(.init(state: state, staleDate: nil), dismissalPolicy: .default)
+        let policy: ActivityUIDismissalPolicy = UIApplication.shared.applicationState == .active ? .immediate : .default
+        await currentActivity.end(.init(state: state, staleDate: nil), dismissalPolicy: policy)
         activity = nil
     }
 

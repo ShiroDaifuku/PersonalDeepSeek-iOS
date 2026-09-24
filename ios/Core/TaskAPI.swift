@@ -1,8 +1,8 @@
 import Foundation
 
-struct TaskSchedule: Codable, Equatable { var type: String; var expression: String; var timezone: String }
-struct TaskDraft: Codable, Equatable { var title: String; var kind: String; var schedule: TaskSchedule; var prompt: String; var tools: [String]; var notify: Bool }
-struct RemoteTask: Codable, Identifiable, Equatable {
+struct TaskSchedule: Codable, Equatable, Sendable { var type: String; var expression: String; var timezone: String }
+struct TaskDraft: Codable, Equatable, Sendable { var title: String; var kind: String; var schedule: TaskSchedule; var prompt: String; var tools: [String]; var notify: Bool }
+struct RemoteTask: Codable, Identifiable, Equatable, Sendable {
     var id: String; var title: String; var kind: String; var schedule: TaskSchedule; var prompt: String; var tools: [String]; var notify: Bool
     var enabled: Bool; var nextRunAt: String?
 }
@@ -23,6 +23,11 @@ final class TaskAPI: Sendable {
     init(base: URL, userID: String) { self.base = base; self.userID = userID }
     func parse(_ text: String) async throws -> TaskDraft { try await call("v1/tasks/parse", method: "POST", body: ["text": text], as: DraftEnvelope.self).draft }
     func create(_ draft: TaskDraft) async throws -> RemoteTask { try await call("v1/tasks", method: "POST", encodable: draft, as: TaskEnvelope.self).task }
+    func update(_ task: RemoteTask, draft: TaskDraft, enabled: Bool) async throws -> RemoteTask {
+        struct Update: Encodable { let title: String; let kind: String; let schedule: TaskSchedule; let prompt: String; let tools: [String]; let notify: Bool; let enabled: Bool }
+        let value = Update(title: draft.title, kind: draft.kind, schedule: draft.schedule, prompt: draft.prompt, tools: draft.tools, notify: draft.notify, enabled: enabled)
+        return try await call("v1/tasks/\(task.id)", method: "PATCH", encodable: value, as: TaskEnvelope.self).task
+    }
     func list() async throws -> [RemoteTask] { try await call("v1/tasks", method: "GET", as: TasksEnvelope.self).tasks }
     func setEnabled(_ task: RemoteTask, _ enabled: Bool) async throws -> RemoteTask { try await call("v1/tasks/\(task.id)", method: "PATCH", body: ["enabled": enabled], as: TaskEnvelope.self).task }
     func delete(_ task: RemoteTask) async throws { _ = try await request("v1/tasks/\(task.id)", method: "DELETE", data: nil) }

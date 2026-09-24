@@ -13,7 +13,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .badge]
+        let info = notification.request.content.userInfo
+        if info["conversation_id"] != nil || info["conversationId"] != nil { return [] }
+        return [.banner, .sound, .badge]
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {

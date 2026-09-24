@@ -3,7 +3,7 @@ import SwiftData
 
 struct TaskListView: View {
     @Query(sort: \LocalKnowledgeBase.createdAt) private var knowledgeBases: [LocalKnowledgeBase]
-    @AppStorage("cloudServiceURL") private var cloudServiceURL = ""
+    @AppStorage("cloudServiceURL") private var cloudServiceURL = CloudServiceDefaults.baseURL
     @AppStorage("opaqueUserID") private var userID = ""
     @State private var tasks: [RemoteTask] = []
     @State private var naturalLanguage = ""
@@ -64,7 +64,7 @@ struct TaskListView: View {
 private struct TaskHistoryView: View {
     let task: RemoteTask
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("cloudServiceURL") private var cloudServiceURL = ""
+    @AppStorage("cloudServiceURL") private var cloudServiceURL = CloudServiceDefaults.baseURL
     @AppStorage("opaqueUserID") private var userID = ""
     @State private var runs: [RemoteTaskRun] = []
     @State private var errorText: String?

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("cloudServiceURL") private var cloudServiceURL = ""
+    @AppStorage("cloudServiceURL") private var cloudServiceURL = CloudServiceDefaults.baseURL
     @AppStorage("defaultModel") private var model = "deepseek-flash"
     @AppStorage("thinkingEnabled") private var thinking = true
     @AppStorage("reasoningEffort") private var effort = "high"

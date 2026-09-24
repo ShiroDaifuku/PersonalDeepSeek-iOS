@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct ResearchView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \LocalKnowledgeBase.createdAt) private var knowledgeBases: [LocalKnowledgeBase]
     @AppStorage("defaultModel") private var model = "deepseek-flash"
     @AppStorage("thinkingEnabled") private var thinking = true
@@ -47,6 +48,9 @@ struct ResearchView: View {
             }
         }
         .navigationTitle("深度研究")
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background, running { LiveActivityManager.shared.start(title: "深度研究", kind: "research", detail: query) }
+        }
         .onDisappear { if running { work?.cancel() } }
     }
 

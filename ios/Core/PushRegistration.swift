@@ -32,7 +32,7 @@ final class PushRegistration {
 
     private func upload(path: String, body: [String: String]) async {
         let defaults = UserDefaults.standard
-        guard let base = URL(string: defaults.string(forKey: "cloudServiceURL") ?? ""),
+        guard let base = URL(string: defaults.string(forKey: "cloudServiceURL") ?? CloudServiceDefaults.baseURL),
               let userID = defaults.string(forKey: "opaqueUserID"), !userID.isEmpty else { return }
         var request = URLRequest(url: base.appending(path: path)); request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
