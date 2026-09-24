@@ -53,6 +53,10 @@ struct SettingsView: View {
                 Text("小组件和 Live Activity 使用 App Group 共享快照；扩展不会自行联网。").font(.caption).foregroundStyle(.secondary)
             }
             Section("说明") { Text("App 会自动路由：交互功能在本机执行，必须在手机离线时运行的任务交给云端。不需要切换连接模式。") }
+            Section("版本") {
+                LabeledContent("客户端", value: "0.4.0 (13)")
+                LabeledContent("工具路由", value: "v2 · 明确意图强制调用")
+            }
         }.navigationTitle("设置").onAppear { if userID.isEmpty { userID = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") } }
     }
     private func testCloudService() {

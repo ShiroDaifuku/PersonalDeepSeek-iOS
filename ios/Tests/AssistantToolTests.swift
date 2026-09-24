@@ -2,6 +2,17 @@ import XCTest
 @testable import PersonalDeepSeek
 
 final class AssistantToolTests: XCTestCase {
+    func testRoutesExplicitSchedulesBeforeKnowledgeWords() {
+        XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "每天上午九点总结我的笔记"), "create_scheduled_task")
+        XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "把任务改成每天十点"), "edit_scheduled_task")
+    }
+
+    func testRoutesResearchAndKnowledge() {
+        XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "深度研究一下新能源政策"), "start_deep_search")
+        XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "从我的笔记里找合同期限"), "search_local_knowledge")
+        XCTAssertNil(AssistantIntentRouter.preferredTool(for: "解释一下什么是递归"))
+    }
+
     func testDecodesKnowledgeToolAndClampsLimit() throws {
         let call = try AssistantToolPlanner.decode(name: "search_local_knowledge", arguments: #"{"query":"合同期限","limit":99}"#)
         XCTAssertEqual(call, .searchKnowledge(query: "合同期限", limit: 10))

@@ -5,7 +5,10 @@ final class MessagePrefixTests: XCTestCase {
     func testStableSystemHistoryAndNewMessageOrder() {
         let conversation = Conversation(); let a = ChatMessage(role: "user", content: "one", conversation: conversation); let b = ChatMessage(role: "assistant", content: "two", conversation: conversation)
         a.createdAt = Date(timeIntervalSince1970: 1); b.createdAt = Date(timeIntervalSince1970: 2)
-        XCTAssertEqual(MessagePrefix.stable(system: "system", history: [b, a], newUserText: "three"), [APIMessage(role: "system", content: "system"), APIMessage(role: "user", content: "one"), APIMessage(role: "assistant", content: "two"), APIMessage(role: "user", content: "three")])
+        let messages = MessagePrefix.stable(system: "system", history: [b, a], newUserText: "three")
+        XCTAssertTrue(messages[0].content.hasPrefix("system"))
+        XCTAssertTrue(messages[0].content.contains("LaTeX"))
+        XCTAssertEqual(Array(messages.dropFirst()), [APIMessage(role: "user", content: "one"), APIMessage(role: "assistant", content: "two"), APIMessage(role: "user", content: "three")])
     }
 
     func testImageMessageUsesMultimodalWireParts() throws {
@@ -26,7 +29,8 @@ final class MessagePrefixTests: XCTestCase {
         let conversation = Conversation()
         let history = ChatMessage(role: "assistant", content: "earlier", conversation: conversation)
         let messages = MessagePrefix.stable(system: "system", history: [history], knowledgeContext: "[1] note\nlocal text", newUserText: "question")
-        XCTAssertEqual(Array(messages.prefix(2)), [APIMessage(role: "system", content: "system"), APIMessage(role: "assistant", content: "earlier")])
+        XCTAssertTrue(messages[0].content.hasPrefix("system"))
+        XCTAssertEqual(messages[1], APIMessage(role: "assistant", content: "earlier"))
         XCTAssertEqual(messages[2].role, "system")
         XCTAssertTrue(messages[2].content.contains("local text"))
         XCTAssertEqual(messages[3], APIMessage(role: "user", content: "question"))

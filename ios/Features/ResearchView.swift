@@ -29,8 +29,7 @@ struct ResearchView: View {
             }
             if !answer.isEmpty {
                 Section("研究结果") {
-                    if let rendered = try? AttributedString(markdown: answer) { Text(rendered).textSelection(.enabled) }
-                    else { Text(answer).textSelection(.enabled) }
+                    RichMessageView(text: answer)
                     ShareLink(item: answer) { Label("分享结果", systemImage: "square.and.arrow.up") }
                 }
             }

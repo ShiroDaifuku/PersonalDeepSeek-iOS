@@ -7,6 +7,21 @@ enum AssistantToolCall: Equatable, Sendable {
     case editTask(taskID: String, draft: TaskDraft, enabled: Bool)
 }
 
+enum AssistantIntentRouter {
+    static func preferredTool(for text: String) -> String? {
+        let value = text.lowercased()
+        let editWords = ["修改任务", "编辑任务", "把任务", "改成", "暂停任务", "恢复任务", "edit task", "reschedule"]
+        if editWords.contains(where: value.contains) { return "edit_scheduled_task" }
+        let scheduleWords = ["提醒我", "定时", "每天", "每周", "每月", "明天", "后天", "小时后", "分钟后", "schedule", "remind me", "every day", "every week"]
+        if scheduleWords.contains(where: value.contains) { return "create_scheduled_task" }
+        let researchWords = ["深度研究", "深入研究", "deep search", "deep research", "联网搜索", "搜索网页", "查最新"]
+        if researchWords.contains(where: value.contains) { return "start_deep_search" }
+        let knowledgeWords = ["我的笔记", "我的文档", "知识库", "资料库", "本地资料", "private notes", "knowledge base"]
+        if knowledgeWords.contains(where: value.contains) { return "search_local_knowledge" }
+        return nil
+    }
+}
+
 struct PendingTaskAction: Identifiable, Equatable {
     enum Mode: Equatable { case create; case edit(RemoteTask) }
     let id = UUID()
@@ -46,7 +61,7 @@ private struct EditTaskArguments: Codable {
 }
 
 final class AssistantToolPlanner: Sendable {
-    func plan(messages: [APIMessage], model: String, tasks: [RemoteTask]) async throws -> [AssistantToolCall] {
+    func plan(messages: [APIMessage], model: String, tasks: [RemoteTask], preferredTool: String? = nil) async throws -> [AssistantToolCall] {
         guard let key = KeychainStore.readAPIKey(), !key.isEmpty else { throw ClientError.missingKey }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let taskInventory = tasks.compactMap { try? encoder.encode($0) }.compactMap { String(data: $0, encoding: .utf8) }.joined(separator: "\n")
@@ -59,15 +74,16 @@ final class AssistantToolPlanner: Sendable {
         \(taskInventory.isEmpty ? "none available" : taskInventory)
         """)
         let payloadMessages = ([instruction] + messages).map { ["role": $0.role, "content": $0.wireContent] }
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "stream": false,
             "thinking": ["type": "disabled"],
             "reasoning_effort": "none",
             "messages": payloadMessages,
-            "tools": Self.toolDefinitions,
-            "tool_choice": "auto"
+            "tools": Self.toolDefinitions
         ]
+        if let preferredTool { body["tool_choice"] = ["type": "function", "function": ["name": preferredTool]] }
+        else { body["tool_choice"] = "auto" }
         var request = URLRequest(url: URL(string: "https://api.deepseek.com/beta/chat/completions")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 90

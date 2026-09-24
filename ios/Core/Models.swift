@@ -85,7 +85,8 @@ struct APIMessage: Equatable, Sendable {
 
 enum MessagePrefix {
     static func stable(system: String, history: [ChatMessage], knowledgeContext: String? = nil, newUserText: String, imageDataURLs: [String] = []) -> [APIMessage] {
-        var prefix: [APIMessage] = [APIMessage(role: "system", content: system)]
+        let formatting = "When mathematical notation is useful, write inline LaTeX as $...$ and display equations as $$...$$. Use Markdown headings, lists, tables, and fenced code blocks when they improve readability."
+        var prefix: [APIMessage] = [APIMessage(role: "system", content: system + "\n\n" + formatting)]
         let orderedHistory = history.sorted { lhs, rhs in
             lhs.createdAt == rhs.createdAt ? lhs.id.uuidString < rhs.id.uuidString : lhs.createdAt < rhs.createdAt
         }

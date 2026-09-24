@@ -11,11 +11,19 @@ targets:
   PersonalDeepSeek:
     type: application
     platform: iOS
-    sources: [App, Core, Features]
+    sources:
+      - path: App
+        excludes: [Resources]
+      - path: Core
+      - path: Features
+      - path: App/Resources
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.personal.deepseek
         PRODUCT_NAME: PersonalDeepSeek
+        MARKETING_VERSION: 0.4.0
+        CURRENT_PROJECT_VERSION: 13
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: App/PersonalDeepSeek.entitlements

@@ -113,7 +113,13 @@ struct ChatView: View {
         streamTask = Task {
             do {
                 let tasks = (try? await taskAPI?.list()) ?? []
-                let calls = (try? await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks)) ?? []
+                let preferredTool = AssistantIntentRouter.preferredTool(for: requestText)
+                let calls: [AssistantToolCall]
+                do { calls = try await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks, preferredTool: preferredTool) }
+                catch {
+                    if preferredTool != nil { throw NSError(domain: "AssistantTools", code: 1, userInfo: [NSLocalizedDescriptionKey: "工具规划失败：\(error.localizedDescription)"] ) }
+                    calls = []
+                }
                 var referenceSections: [String] = []
                 for call in calls {
                     try Task.checkCancellation()
@@ -195,7 +201,9 @@ private struct MessageBubble: View {
             VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 8) {
                     if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }
-                    if let rendered = try? AttributedString(markdown: message.content) { Text(rendered).textSelection(.enabled) } else { Text(message.content).textSelection(.enabled) }
+                    if isUser {
+                        if let rendered = try? AttributedString(markdown: message.content) { Text(rendered).textSelection(.enabled) } else { Text(message.content).textSelection(.enabled) }
+                    } else { RichMessageView(text: message.content) }
                 }.padding(.horizontal, 13).padding(.vertical, 10).foregroundStyle(isUser ? Color.white : Color.primary).background(isUser ? Color.accentColor : Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 HStack(spacing: 14) { Button { UIPasteboard.general.string = message.content } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("复制消息"); ShareLink(item: message.content) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享消息") }.font(.caption).foregroundStyle(.secondary)
             }

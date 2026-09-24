@@ -75,7 +75,7 @@ private struct TaskHistoryView: View {
                 ForEach(runs) { run in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack { Text(run.status).font(.headline); Spacer(); Text(run.model).font(.caption).foregroundStyle(.secondary) }
-                        if let output = run.output { Text(output).textSelection(.enabled) }
+                        if let output = run.output { RichMessageView(text: output) }
                         if let error = run.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
                         if let notification = run.notificationStatus { Text("通知：\(notification)").font(.caption).foregroundStyle(.secondary) }
                         Text("输入约 \(run.promptTokens) · 输出约 \(run.completionTokens) tokens · \(run.startedAt)").font(.caption).foregroundStyle(.secondary)
