@@ -21,6 +21,15 @@ final class LocalKnowledgeTests: XCTestCase {
         XCTAssertTrue(LocalKnowledgeIndex.search("量子火箭", in: [knowledgeBase]).isEmpty)
     }
 
+    func testChineseQueryTermsMayOverlapWithoutCrashing() {
+        let knowledgeBase = LocalKnowledgeBase(name: "测试")
+        let document = LocalKnowledgeDocument(name: "苹果.txt", mediaType: "text/plain", byteCount: 12, knowledgeBase: knowledgeBase)
+        let text = "苹果苹果营养记录"
+        document.chunks = [LocalKnowledgeChunk(index: 0, text: text, embedding: LocalKnowledgeIndex.encode(LocalKnowledgeIndex.embedding(for: text)), document: document)]
+        knowledgeBase.documents = [document]
+        XCTAssertEqual(LocalKnowledgeIndex.search("苹果", in: [knowledgeBase]).first?.documentName, "苹果.txt")
+    }
+
     func testTaskContextSnapshotDoesNotUploadWholeKnowledgeBase() {
         let draft = TaskDraft(title: "摘要", kind: "one_off", schedule: .init(type: "once", expression: "2030-01-01T00:00:00Z", timezone: "UTC"), prompt: "总结苹果", tools: ["none"], notify: true)
         let result = LocalKnowledgeResult(id: UUID(), knowledgeBaseID: UUID(), documentID: UUID(), documentName: "水果.txt", index: 0, text: "苹果是水果", score: 0.9)

@@ -73,7 +73,7 @@ enum LocalKnowledgeIndex {
     static func search(_ query: String, in knowledgeBases: [LocalKnowledgeBase], limit: Int = 8, minimumScore: Double = 0.05) -> [LocalKnowledgeResult] {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         let target = embedding(for: query)
-        let queryTerms = terms(in: query)
+        let queryTerms = Array(Set(terms(in: query)))
         let candidates = knowledgeBases.filter(\.enabled).flatMap { knowledgeBase in
             knowledgeBase.documents.flatMap { document in
                 document.chunks.map { (knowledgeBase, document, $0) }
