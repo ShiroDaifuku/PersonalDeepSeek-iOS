@@ -9,6 +9,7 @@ final class AssistantToolTests: XCTestCase {
 
     func testRoutesResearchAndKnowledge() {
         XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "深度研究一下新能源政策"), "start_deep_search")
+        XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "DeepSeek 最新消息"), "start_deep_search")
         XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "从我的笔记里找合同期限"), "search_local_knowledge")
         XCTAssertNil(AssistantIntentRouter.preferredTool(for: "解释一下什么是递归"))
         XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "创建知识库叫工作资料"), "manage_local_knowledge")

@@ -12,10 +12,9 @@ struct ResearchSource: Identifiable, Equatable, Sendable {
 }
 
 enum LocalResearchError: LocalizedError, Sendable {
-    case missingSearchKey, invalidQuery, searchFailed(Int), invalidPage, pageTooLarge, noResults
+    case invalidQuery, searchFailed(Int), invalidPage, pageTooLarge, noResults
     var errorDescription: String? {
         switch self {
-        case .missingSearchKey: "请先在设置中保存联网搜索 API Key。"
         case .invalidQuery: "研究问题不能为空。"
         case .searchFailed(let status): "搜索服务返回 \(status)。"
         case .invalidPage: "来源网页地址或内容无效。"
@@ -32,7 +31,7 @@ final class LocalResearchService: Sendable {
     func gather(query: String, limit: Int = 6) async throws -> [ResearchSource] {
         let rows = try await search(query: query, limit: limit)
         let gathered = await withTaskGroup(of: ResearchSource?.self) { group in
-            for row in rows { group.addTask { try? await self.fetch(row) } }
+            for row in rows { group.addTask { (try? await self.fetch(row)) ?? row } }
             var values: [ResearchSource] = []
             for await value in group { if let value { values.append(value) } }
             return values.sorted { lhs, rhs in
@@ -47,9 +46,18 @@ final class LocalResearchService: Sendable {
     func search(query: String, limit: Int = 6) async throws -> [ResearchSource] {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.count <= 500 else { throw LocalResearchError.invalidQuery }
-        guard let key = KeychainStore.readSearchAPIKey(), !key.isEmpty else { throw LocalResearchError.missingSearchKey }
+        if let key = KeychainStore.readSearchAPIKey(), !key.isEmpty {
+            do { let rows = try await braveSearch(query: value, limit: limit, key: key); if !rows.isEmpty { return rows } }
+            catch is CancellationError { throw CancellationError() }
+            catch { /* Fall back to the no-key provider below. */ }
+        }
+        try Task.checkCancellation()
+        return try await bingRSSSearch(query: value, limit: limit)
+    }
+
+    private func braveSearch(query: String, limit: Int, key: String) async throws -> [ResearchSource] {
         var components = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
-        components.queryItems = [.init(name: "q", value: value), .init(name: "count", value: String(max(1, min(limit, 10))))]
+        components.queryItems = [.init(name: "q", value: query), .init(name: "count", value: String(max(1, min(limit, 10))))]
         var request = URLRequest(url: components.url!); request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(key, forHTTPHeaderField: "X-Subscription-Token")
@@ -66,6 +74,23 @@ final class LocalResearchService: Sendable {
         return rows
     }
 
+    private func bingRSSSearch(query: String, limit: Int) async throws -> [ResearchSource] {
+        var components = URLComponents(string: "https://www.bing.com/search")!
+        components.queryItems = [.init(name: "q", value: query), .init(name: "format", value: "rss"), .init(name: "count", value: String(max(1, min(limit, 10)))), .init(name: "setlang", value: "zh-Hans")]
+        var request = URLRequest(url: components.url!); request.timeoutInterval = 20
+        request.setValue("application/rss+xml, application/xml;q=0.9", forHTTPHeaderField: "Accept")
+        request.setValue("Mozilla/5.0 (iPhone; DeepSeekPersonal/1.0)", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw LocalResearchError.searchFailed(0) }
+        guard http.statusCode == 200 else { throw LocalResearchError.searchFailed(http.statusCode) }
+        let rows = Self.parseBingRSS(data).prefix(limit).compactMap { item -> ResearchSource? in
+            guard let url = URL(string: item.link), Self.isAllowed(url) else { return nil }
+            return .init(title: item.title.isEmpty ? url.host ?? item.link : item.title, url: url, snippet: Self.plainText(fromHTML: item.description))
+        }
+        guard !rows.isEmpty else { throw LocalResearchError.noResults }
+        return Array(rows)
+    }
+
     func fetch(_ source: ResearchSource) async throws -> ResearchSource {
         guard Self.isAllowed(source.url) else { throw LocalResearchError.invalidPage }
         var request = URLRequest(url: source.url); request.timeoutInterval = 25
@@ -74,7 +99,7 @@ final class LocalResearchService: Sendable {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw LocalResearchError.invalidPage }
         guard data.count <= 1_500_000 else { throw LocalResearchError.pageTooLarge }
         let encoding = String.Encoding.utf8
-        guard let html = String(data: data, encoding: encoding) else { throw LocalResearchError.invalidPage }
+        guard let html = String(data: data, encoding: encoding) ?? String(data: data, encoding: .isoLatin1) else { throw LocalResearchError.invalidPage }
         let text = Self.plainText(fromHTML: html)
         guard !text.isEmpty else { throw LocalResearchError.invalidPage }
         return .init(id: source.id, title: source.title, url: source.url, snippet: source.snippet, pageText: String(text.prefix(12_000)))
@@ -103,5 +128,27 @@ final class LocalResearchService: Sendable {
         let entities = ["&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'"]
         for (entity, replacement) in entities { value = value.replacingOccurrences(of: entity, with: replacement) }
         return value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func parseBingRSS(_ data: Data) -> [(title: String, link: String, description: String)] {
+        let delegate = RSSDelegate(), parser = XMLParser(data: data)
+        parser.delegate = delegate
+        return parser.parse() ? delegate.items : []
+    }
+}
+
+private final class RSSDelegate: NSObject, XMLParserDelegate {
+    var items: [(title: String, link: String, description: String)] = []
+    private var insideItem = false, element = "", value = "", title = "", link = "", descriptionText = ""
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
+        if elementName.lowercased() == "item" { insideItem = true; title = ""; link = ""; descriptionText = "" }
+        guard insideItem else { return }; element = elementName.lowercased(); value = ""
+    }
+    func parser(_ parser: XMLParser, foundCharacters string: String) { if insideItem { value += string } }
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        let name = elementName.lowercased()
+        if insideItem { switch name { case "title": title = value.trimmingCharacters(in: .whitespacesAndNewlines); case "link": link = value.trimmingCharacters(in: .whitespacesAndNewlines); case "description": descriptionText = value.trimmingCharacters(in: .whitespacesAndNewlines); default: break } }
+        if name == "item" { insideItem = false; if !link.isEmpty { items.append((title, link, descriptionText)) } }
+        element = ""; value = ""
     }
 }

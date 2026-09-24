@@ -20,4 +20,15 @@ final class LocalResearchTests: XCTestCase {
         XCTAssertTrue(prompt.contains("[1] Example"))
         XCTAssertTrue(prompt.contains("https://example.com"))
     }
+
+    func testParsesBingRSSFallback() {
+        let xml = """
+        <?xml version="1.0"?><rss><channel><item><title>示例结果</title><link>https://example.com/article</link><description>&lt;b&gt;摘要&lt;/b&gt;</description></item></channel></rss>
+        """
+        let rows = LocalResearchService.parseBingRSS(Data(xml.utf8))
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.title, "示例结果")
+        XCTAssertEqual(rows.first?.link, "https://example.com/article")
+        XCTAssertTrue(rows.first?.description.contains("摘要") == true)
+    }
 }

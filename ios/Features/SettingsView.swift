@@ -34,10 +34,10 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("本地联网研究") {
-                SecureField("Brave Search API Key", text: $searchKey).textContentType(.password)
+                SecureField("Brave Search API Key（可选）", text: $searchKey).textContentType(.password)
                 Button("保存搜索 Key") { do { try KeychainStore.saveSearchAPIKey(searchKey); searchKey = ""; saved = true } catch { saved = false } }
                 Button("删除搜索 Key", role: .destructive) { KeychainStore.deleteSearchAPIKey() }
-                Text("搜索与网页抓取由本机发起；Key 只保存在 Keychain，研究结果不会上传到云端任务服务。")
+                Text("搜索与网页抓取由本机发起。未配置 Key 时自动使用免密搜索回退；配置 Brave Key 后优先使用 Brave，Key 只保存在 Keychain。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("模型") {

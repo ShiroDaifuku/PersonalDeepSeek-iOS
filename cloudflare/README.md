@@ -13,6 +13,9 @@ default; a user may explicitly select individual bases for cloud-task sync.
 - Queue: executes DeepSeek calls with retry and a dead-letter queue.
 - Worker secrets: app access token, DeepSeek key, optional Brave/APNs credentials.
 
+Web-enabled tasks prefer Brave Search when `BRAVE_SEARCH_API_KEY` is configured
+and otherwise fall back to Bing's public RSS search endpoint.
+
 ## Deploy
 
 Install dependencies and authenticate with a scoped API token:
