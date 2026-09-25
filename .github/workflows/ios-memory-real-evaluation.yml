@@ -50,7 +50,7 @@ jobs:
           test -n "$destination_id"
           echo "SIMULATOR_ID=$destination_id" >> "$GITHUB_ENV"
 
-      - name: Run real extraction evaluation three times
+      - name: Build evaluation test bundle
         working-directory: ios
         run: |
           set -o pipefail
@@ -60,9 +60,56 @@ jobs:
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$RUNNER_TEMP/MemoryRealEvaluationDerivedData" \
+            build-for-testing \
+            | tee "$RUNNER_TEMP/memory-real-evaluation-build.log"
+
+      - name: Inject evaluation environment into temporary xctestrun
+        run: |
+          set -euo pipefail
+          xctestrun="$(find "$RUNNER_TEMP/MemoryRealEvaluationDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
+          test -n "$xctestrun"
+          python3 - "$xctestrun" <<'PY'
+          import os
+          import plistlib
+          import sys
+
+          path = sys.argv[1]
+          with open(path, "rb") as source:
+              document = plistlib.load(source)
+
+          injected = 0
+          def visit(value):
+              global injected
+              if isinstance(value, dict):
+                  if "TestBundlePath" in value:
+                      environment = value.setdefault("EnvironmentVariables", {})
+                      environment["RUN_REAL_MEMORY_EVALUATION"] = "1"
+                      environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
+                      injected += 1
+                  for child in value.values():
+                      visit(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      visit(child)
+
+          visit(document)
+          if injected == 0:
+              raise SystemExit("No XCTest configuration found")
+          with open(path, "wb") as destination:
+              plistlib.dump(document, destination)
+          PY
+          echo "XCTESTRUN_PATH=$xctestrun" >> "$GITHUB_ENV"
+
+      - name: Run real extraction evaluation three times
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -resultBundlePath "$RUNNER_TEMP/MemoryRealEvaluation.xcresult" \
             -only-testing:PersonalDeepSeekTests/MemoryRealEvaluationTests/testProductionExtractorAgainstSyntheticBenchmark \
-            test \
+            test-without-building \
             | tee "$RUNNER_TEMP/memory-real-evaluation.log"
 
       - name: Collect evaluation reports
@@ -74,6 +121,7 @@ jobs:
           find "$simulator_root" -type f \
             \( -name 'memory-evaluation-report.json' -o -name 'memory-evaluation-report.md' \) \
             -exec cp {} "$RUNNER_TEMP/memory-evaluation-report/" \; 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-real-evaluation-build.log" "$RUNNER_TEMP/memory-evaluation-report/"
           cp "$RUNNER_TEMP/memory-real-evaluation.log" "$RUNNER_TEMP/memory-evaluation-report/"
           test -f "$RUNNER_TEMP/memory-evaluation-report/memory-evaluation-report.json"
           test -f "$RUNNER_TEMP/memory-evaluation-report/memory-evaluation-report.md"
