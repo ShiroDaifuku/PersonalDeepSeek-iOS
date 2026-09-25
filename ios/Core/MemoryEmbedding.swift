@@ -35,6 +35,14 @@ struct MemoryEmbeddingAvailability: Codable, Sendable, Equatable {
     let detail: String
 }
 
+struct MemoryContextualPreparationReport: Codable, Sendable, Equatable {
+    let before: MemoryEmbeddingAvailability
+    let requestAttempted: Bool
+    let requestResult: String
+    let after: MemoryEmbeddingAvailability
+    let durationMilliseconds: Int
+}
+
 struct MemoryEmbeddingVector: Codable, Sendable, Equatable {
     let descriptor: MemoryEmbeddingDescriptor
     let values: [Float]
@@ -261,6 +269,57 @@ actor NLContextualMemoryEmbeddingProvider: MemoryEmbeddingProvider {
             }
         }
         return availability(for: text)
+    }
+
+    /// Diagnostic variant used by the DEBUG physical-device evaluator. Asset
+    /// acquisition remains entirely under Apple's supported requestAssets API.
+    func prepareWithDiagnostics(
+        for text: String,
+        requestAssetDownload: Bool
+    ) async -> MemoryContextualPreparationReport {
+        let before = availability(for: text)
+        let startedAt = Date()
+        let language = MemoryEmbeddingText.language(for: text)
+        guard var state = state(for: language) else {
+            return .init(
+                before: before,
+                requestAttempted: false,
+                requestResult: "provider-unavailable",
+                after: availability(for: text),
+                durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1_000)
+            )
+        }
+
+        var requestAttempted = false
+        var requestResult = state.model.hasAvailableAssets ? "assets-already-available" : "not-requested"
+        if !state.model.hasAvailableAssets, requestAssetDownload {
+            requestAttempted = true
+            do {
+                let available = try await requestAssets(for: state.model)
+                requestResult = available ? "available" : "request-completed-not-available"
+            } catch {
+                requestResult = "request-error: \(String(describing: error))"
+            }
+        }
+
+        if state.model.hasAvailableAssets, !state.loaded {
+            do {
+                try state.model.load()
+                state.loaded = true
+                states[language] = state
+                requestResult += "; load-succeeded"
+            } catch {
+                states[language] = state
+                requestResult += "; load-error: \(String(describing: error))"
+            }
+        }
+        return .init(
+            before: before,
+            requestAttempted: requestAttempted,
+            requestResult: requestResult,
+            after: availability(for: text),
+            durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1_000)
+        )
     }
 
     func embedding(for text: String) throws -> MemoryEmbeddingVector {

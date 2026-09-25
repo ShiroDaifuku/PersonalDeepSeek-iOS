@@ -53,6 +53,13 @@ struct SettingsView: View {
                 Text("小组件和 Live Activity 使用 App Group 共享快照；扩展不会自行联网。").font(.caption).foregroundStyle(.secondary)
             }
             Section("说明") { Text("App 会自动路由：交互功能在本机执行，必须在手机离线时运行的任务交给云端。不需要切换连接模式。") }
+            #if DEBUG
+            Section("开发者") {
+                NavigationLink("Memory 真机语义评测") { MemorySemanticEvaluationView() }
+                Text("只在 DEBUG 构建显示；不会读取或修改真实 Memory。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            #endif
             Section("版本") {
                 LabeledContent("客户端", value: "0.5.0 (14)")
                 LabeledContent("工具路由", value: "v3 · 知识库管理与动态任务检索")
