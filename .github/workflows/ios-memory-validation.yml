@@ -36,6 +36,18 @@ jobs:
           brew install xcodegen
           xcodegen --version
 
+      - name: Generate pre-Step-3 SwiftData migration fixture
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          mkdir -p Tests/Resources "$RUNNER_TEMP/step3-fixture-generator"
+          xcrun swiftc \
+            -parse-as-library \
+            Validation/GeneratePreStep3MemoryStore.swift \
+            -o "$RUNNER_TEMP/step3-fixture-generator/generate"
+          "$RUNNER_TEMP/step3-fixture-generator/generate" "$PWD/Tests/Resources/pre-step3.store"
+          test -s Tests/Resources/pre-step3.store
+
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
@@ -118,6 +130,7 @@ jobs:
                       environment = value.setdefault("EnvironmentVariables", {})
                       environment["RUN_MEMORY_PROVIDER_EVALUATION"] = "1"
                       environment["RUN_MEMORY_RETRIEVAL_EVALUATION"] = "1"
+                      environment["RUN_STEP3_MIGRATION_VALIDATION"] = "1"
                       # CI simulators may never complete the optional asset request.
                       # Measure the installed state and exercise the immediate fallback.
                       environment["REQUEST_CONTEXTUAL_ASSETS"] = "0"
@@ -152,6 +165,18 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/memory-retrieval-evaluation.log"
 
+      - name: Validate additive Step 3 migration
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xctestrun="$(find "$RUNNER_TEMP/MemoryValidationDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
+          xcodebuild \
+            -xctestrun "$xctestrun" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/MemoryStep3MigrationTests/testPreStep3StoreAddsLastConfirmedAtWithoutLosingMemoryOrSource \
+            test-without-building \
+            | tee "$RUNNER_TEMP/memory-step3-migration.log"
+
       - name: Collect provider evaluation report
         if: always()
         run: |
@@ -164,6 +189,7 @@ jobs:
             -exec cp {} "$RUNNER_TEMP/memory-provider-evaluation/" \; 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-provider-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-retrieval-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-step3-migration.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
 
       - name: Upload provider evaluation report
         if: always()

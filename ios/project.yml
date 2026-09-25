@@ -47,7 +47,11 @@ targets:
   PersonalDeepSeekTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [Tests]
+    sources:
+      - path: Tests
+        excludes: [Resources]
+      - path: Tests/Resources
+        buildPhase: resources
     dependencies:
       - target: PersonalDeepSeek
     settings:
