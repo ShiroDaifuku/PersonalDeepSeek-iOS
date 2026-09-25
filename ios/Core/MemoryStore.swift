@@ -125,12 +125,17 @@ actor MemoryStore {
             predicate: #Predicate { $0.scopeID == requestedScope },
             sortBy: [SortDescriptor(\MemoryItem.lastConfirmedAt, order: .reverse)]
         ))
-        return items.map { item in
-            let sourceValues = item.sources
-                .filter { $0.scopeID == scope }
-                .map { sourceSnapshot($0, memoryItemID: item.id) }
-            return MemoryRetrievalRecord(memory: memorySnapshot(item), sources: sourceValues)
+        var records: [MemoryRetrievalRecord] = []
+        records.reserveCapacity(items.count)
+        for item in items {
+            let itemID = item.id
+            var sourceValues: [MemorySourceSnapshot] = []
+            for source in item.sources where source.scopeID == scope {
+                sourceValues.append(sourceSnapshot(source, memoryItemID: itemID))
+            }
+            records.append(MemoryRetrievalRecord(memory: memorySnapshot(item), sources: sourceValues))
         }
+        return records
     }
 
     @discardableResult
