@@ -117,7 +117,9 @@ jobs:
                   if "TestBundlePath" in value:
                       environment = value.setdefault("EnvironmentVariables", {})
                       environment["RUN_MEMORY_PROVIDER_EVALUATION"] = "1"
-                      environment["REQUEST_CONTEXTUAL_ASSETS"] = "1"
+                      # CI simulators may never complete the optional asset request.
+                      # Measure the installed state and exercise the immediate fallback.
+                      environment["REQUEST_CONTEXTUAL_ASSETS"] = "0"
                       injected += 1
                   for child in value.values():
                       visit(child)
