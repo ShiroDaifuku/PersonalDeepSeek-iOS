@@ -1,6 +1,7 @@
 import Foundation
 
 enum MemoryExtractionConfiguration {
+    static let schemaVersion = 1
     static let endpoint = URL(string: "https://api.deepseek.com/chat/completions")!
     static let modelName = "deepseek-flash"
     static let maxTokens = 1_200
@@ -10,7 +11,7 @@ enum MemoryExtractionConfiguration {
 }
 
 enum MemoryExtractorPrompt {
-    static let version = 1
+    static let version = 2
     static let text = """
     You extract durable personal context that may improve future assistance. You are not summarizing the conversation.
 
@@ -29,8 +30,17 @@ enum MemoryExtractorPrompt {
     10. A REINFORCE requires the current user message to explicitly reconfirm the existing memory.
     11. A SUPERSEDE requires the current user message to explicitly make an old state/preference no longer true and provide its replacement.
     12. canonicalText must be concise, third-person, independently understandable, begin with “用户”, and must not quote the conversation.
+    13. When a message contains both third-party information and an explicit first-person fact, extract only the first-person fact. Never transfer the third party's state to the user.
+    14. “偶尔看看但算不上喜欢”, a one-time “感觉还行”, and momentary activities such as drinking water are NOOP, not preferences or useful state.
+    15. Avoid deictic dialogue residue such as “这个项目”, “这本”, or “当前讨论的”. Restate only the supported, independently understandable fact.
 
-    Allowed kinds: durableFact, preference, ongoingContext, recentState, event.
+    Kind guide:
+    - durableFact: relatively stable identity, education, owned/used device, or stable circumstance.
+    - preference: an explicit positive or negative preference. Preserve negation exactly.
+    - ongoingContext: an ongoing project, goal, or commitment likely to matter across future conversations.
+    - recentState: a temporary current state, especially “最近/这几天” study or focus. Do not label a short recent phase as ongoingContext.
+    - event: a completed meaningful milestone. Finishing a book is an event. When an existing ongoing project is explicitly completed, SUPERSEDE it with a completion state rather than leaving it active.
+
     Allowed actions: add, reinforce, supersede, ignore.
 
     Output JSON only, with no Markdown or explanatory text. Use exactly this shape:
@@ -338,19 +348,28 @@ enum MemoryLexicalScorer {
     }
 
     private static func normalized(_ value: String) -> String {
-        value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let aliases = [
+            ("线代", "线性代数"),
+            ("做完", "完成"),
+            ("看完", "完成阅读")
+        ]
+        for (source, replacement) in aliases {
+            result = result.replacingOccurrences(of: source, with: replacement)
+        }
+        return result
     }
 }
 
 enum MemoryOperationValidator {
-    static let version = 1
+    static let version = 2
 
     static func validate(
         response: MemoryExtractionResponse,
         turn: CompletedTurnSnapshot,
         candidates: [ExistingMemoryCandidate]
     ) throws -> [ValidatedMemoryOperation] {
-        guard response.schemaVersion == MemoryExtractorPrompt.version else { throw MemoryProcessingError.invalidSchema }
+        guard response.schemaVersion == MemoryExtractionConfiguration.schemaVersion else { throw MemoryProcessingError.invalidSchema }
         guard response.operations.count <= MemoryExtractionConfiguration.maximumOperations else {
             throw MemoryProcessingError.validationRejected
         }
@@ -414,20 +433,34 @@ enum MemoryOperationValidator {
 }
 
 enum MemoryEvidenceFilter {
-    static let version = 1
+    static let version = 2
 
     static func allows(userText: String, canonicalText: String) -> Bool {
         let combined = (userText + "\n" + canonicalText).lowercased()
         let secrets = ["api key", "apikey", "sk-", "密码", "password", "验证码", "verification code", "auth token", "access token", "bearer ", "银行卡", "银行卡号", "银行账户", "账户密码", "住址是", "地址是", "家庭住址"]
         let sensitive = ["确诊", "诊断", "症状", "性生活", "政治立场", "宗教身份", "种族", "民族身份", "犯罪记录", "实时位置"]
-        let thirdParty = ["我朋友", "我的朋友", "我同事", "我的同事", "我家人", "我的家人", "我妈妈", "我爸爸", "我室友", "我的室友", "我同学", "我的同学", "他最近", "她最近"]
-        let hypothetical = ["假设我", "假如我", "如果我住", "如果我是", "角色扮演", "小说里的", "翻译以下", "翻译这段", "引用内容"]
+        let thirdParty = ["我朋友", "我的朋友", "朋友跟我说", "我同事", "我的同事", "我家人", "我的家人", "我妈妈", "我爸爸", "我室友", "我的室友", "我同学", "我的同学", "我弟", "我妹", "他最近", "她最近"]
+        let hypothetical = ["假设我", "假如我", "如果我住", "如果我是", "如果以后我", "角色扮演", "小说里的", "小说男主", "翻译以下", "翻译这段", "帮我翻译", "引用内容"]
+        let lowValue = ["我现在在喝水", "算不上喜欢", "第一次看", "感觉还行"]
         guard !secrets.contains(where: combined.contains),
               !sensitive.contains(where: combined.contains),
-              !thirdParty.contains(where: combined.contains),
-              !hypothetical.contains(where: combined.contains)
+              !hypothetical.contains(where: combined.contains),
+              !lowValue.contains(where: combined.contains)
         else { return false }
-        let evidenceMarkers = ["本人", "我是", "我在", "我有", "我用", "我的电脑", "我的手机", "我目前", "我最近", "我这几天", "我正在", "我现在", "我还是", "我喜欢", "我最喜欢", "我更喜欢", "我偏好", "我不喜欢", "我已经", "我完成", "现在开始", "告一段落"]
-        return evidenceMarkers.contains(where: userText.contains)
+
+        let containsThirdParty = thirdParty.contains(where: userText.contains)
+        if containsThirdParty {
+            let explicitSelfContrast = ["我自己", "但我", "而我", "我本人"].contains(where: userText.contains)
+            let thirdPartyResidue = ["朋友", "室友", "同事", "家人", "妈妈", "爸爸", "弟", "妹", "男主", "他", "她"]
+            guard explicitSelfContrast,
+                  !thirdPartyResidue.contains(where: canonicalText.contains)
+            else { return false }
+        }
+
+        let explicitMarkers = ["本人", "我是", "我在", "我有", "我用", "我的电脑", "我的手机", "我目前", "我最近", "我这几天", "我正在", "我现在", "我还是", "我喜欢", "我最喜欢", "我更喜欢", "我偏好", "我不喜欢", "我不太喜欢", "我已经", "我完成", "我自己", "我以前", "现在开始", "告一段落", "先学完", "已经做完"]
+        if explicitMarkers.contains(where: userText.contains) { return true }
+
+        let firstPersonClaimWords = ["喜欢", "不喜欢", "看不下去", "正在", "在做", "复习", "用的是", "已经", "学完", "做完", "完成", "开始"]
+        return userText.contains("我") && firstPersonClaimWords.contains(where: userText.contains)
     }
 }

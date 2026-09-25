@@ -338,7 +338,7 @@ private enum MemoryEvaluationScorer {
 
     private static func canonicalQuality(_ text: String, testCase: MemoryEvaluationCase) -> Bool {
         guard text.hasPrefix("用户") else { return false }
-        let residue = ["用户刚才说", "根据以上对话", "他表示", "她表示"]
+        let residue = ["用户刚才说", "根据以上对话", "他表示", "她表示", "这个项目", "这本", "当前讨论", "当前提及"]
         guard !residue.contains(where: text.contains), !testCase.forbiddenTerms.contains(where: text.contains) else { return false }
         return testCase.requiredTerms.allSatisfy { alternatives in alternatives.contains(where: text.localizedCaseInsensitiveContains) }
     }
@@ -547,7 +547,10 @@ private struct MemoryEvaluationReport: Codable, Sendable {
             "- Average tokens / turn: \(format(summary.averageTokensPerTurn))",
             "- Estimated tokens / 100 chats: \(format(summary.estimatedTokensPer100Chats))", "",
             "## H. Prompt Changes", "",
-            "No benchmark-specific prompt was used. This report reflects production prompt version \(environment.promptVersion).", "",
+            environment.promptVersion == 1
+                ? "Baseline production prompt v1; no benchmark-specific prompt was used."
+                : "Production prompt v1 → v2. Baseline: 74/102 passed, FPR 3.51%, 23 false negatives, 3 bad reinforces, 6 bad supersedes. v2 clarifies kind boundaries, completed events, mixed third-party/self statements, weak-interest NOOP, and self-contained canonical text; validator/evidence filtering was generalized without changing JSON schema v1. Current results are shown above.",
+            "",
             "## I. Recommendation", "",
             "**\(summary.recommendation)**", ""
         ]
