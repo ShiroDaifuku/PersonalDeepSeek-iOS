@@ -27,16 +27,27 @@ final class APIClient: Sendable {
                         var parser = SSEParser(); var emitted = false
                         for try await line in bytes.lines {
                             try Task.checkCancellation()
-                            for event in parser.appendLine(line) {
+                            for event in parser.appendEventLine(line) {
                                 if case .content = event { emitted = true }
                                 if case .reasoning = event { emitted = true }
+                                if event == .done {
+                                    guard emitted else { throw ClientError.streamEnded }
+                                    continuation.yield(event); continuation.finish(); return
+                                }
                                 continuation.yield(event)
-                                if event == .done { continuation.finish(); return }
                             }
                         }
                         try Task.checkCancellation()
-                        for event in parser.finish() { continuation.yield(event); if event == .done { continuation.finish(); return } }
-                        if emitted { throw ClientError.streamEnded }; continuation.finish(); return
+                        for event in parser.finish() {
+                            if case .content = event { emitted = true }
+                            if case .reasoning = event { emitted = true }
+                            if event == .done {
+                                guard emitted else { throw ClientError.streamEnded }
+                                continuation.yield(event); continuation.finish(); return
+                            }
+                            continuation.yield(event)
+                        }
+                        throw ClientError.streamEnded
                     }
                 } catch { continuation.finish(throwing: error) }
             }

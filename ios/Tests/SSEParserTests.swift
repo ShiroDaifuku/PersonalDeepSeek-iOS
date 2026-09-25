@@ -27,4 +27,12 @@ final class SSEParserTests: XCTestCase {
         XCTAssertEqual(parser.appendLine("data: [DONE]"), [])
         XCTAssertEqual(parser.appendLine(""), [.done])
     }
+
+    func testEventLineParsingDoesNotRequireBlankLines() {
+        var parser = SSEParser()
+        XCTAssertEqual(parser.appendEventLine(": keep-alive"), [])
+        XCTAssertEqual(parser.appendEventLine(#"data: {"choices":[{"delta":{"reasoning_content":"先分析"}}]}"#), [.reasoning("先分析")])
+        XCTAssertEqual(parser.appendEventLine(#"data: {"choices":[{"delta":{"content":"再回答"}}]}"#), [.content("再回答")])
+        XCTAssertEqual(parser.appendEventLine("data: [DONE]"), [.done])
+    }
 }
