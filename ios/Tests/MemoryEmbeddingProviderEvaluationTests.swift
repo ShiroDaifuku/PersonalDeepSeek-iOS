@@ -64,8 +64,8 @@ final class MemoryEmbeddingProviderEvaluationTests: XCTestCase {
 
         if #available(iOS 17.0, *) {
             let contextual = NLContextualMemoryEmbeddingProvider()
-            _ = await contextual.prepare(for: "用户喜欢用 SwiftUI 写 iOS 应用", requestAssets: requestAssets)
-            _ = await contextual.prepare(for: "The user prefers TypeScript for backend services", requestAssets: requestAssets)
+            _ = await contextual.prepare(for: "用户喜欢用 SwiftUI 写 iOS 应用", requestAssetDownload: requestAssets)
+            _ = await contextual.prepare(for: "The user prefers TypeScript for backend services", requestAssetDownload: requestAssets)
             reports.append(await evaluate(provider: contextual))
         }
 

@@ -245,10 +245,10 @@ actor NLContextualMemoryEmbeddingProvider: MemoryEmbeddingProvider {
         )
     }
 
-    func prepare(for text: String, requestAssets: Bool) async -> MemoryEmbeddingAvailability {
+    func prepare(for text: String, requestAssetDownload: Bool) async -> MemoryEmbeddingAvailability {
         let language = MemoryEmbeddingText.language(for: text)
         guard var state = state(for: language) else { return availability(for: text) }
-        if !state.model.hasAvailableAssets, requestAssets {
+        if !state.model.hasAvailableAssets, requestAssetDownload {
             _ = try? await requestAssets(for: state.model)
         }
         if state.model.hasAvailableAssets, !state.loaded {
