@@ -2,6 +2,15 @@ name: Build iOS IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      configuration:
+        description: Build configuration
+        required: true
+        default: Release
+        type: choice
+        options:
+          - Release
+          - Debug
   push:
     branches: [main]
     paths:
@@ -10,6 +19,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  BUILD_CONFIGURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Release' }}
 
 concurrency:
   group: ios-build-${{ github.ref }}
@@ -55,7 +67,7 @@ jobs:
           xcodebuild \
             -project PersonalDeepSeek.xcodeproj \
             -scheme PersonalDeepSeek \
-            -configuration Release \
+            -configuration "$BUILD_CONFIGURATION" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
@@ -65,25 +77,34 @@ jobs:
             DEVELOPMENT_TEAM="" \
             clean build | tee "$RUNNER_TEMP/xcodebuild.log"
 
+      - name: Verify Debug evaluation entry
+        if: env.BUILD_CONFIGURATION == 'Debug'
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphoneos/PersonalDeepSeek.app"
+          test -d "$app"
+          strings "$app/PersonalDeepSeek" | grep -q 'MemorySemanticEvaluationView'
+
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
-          app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/PersonalDeepSeek.app"
+          app="$RUNNER_TEMP/DerivedData/Build/Products/${BUILD_CONFIGURATION}-iphoneos/PersonalDeepSeek.app"
           test -d "$app"
           mkdir -p "$RUNNER_TEMP/package/Payload"
           ditto "$app" "$RUNNER_TEMP/package/Payload/PersonalDeepSeek.app"
           cd "$RUNNER_TEMP/package"
-          zip -qry "$GITHUB_WORKSPACE/PersonalDeepSeek-unsigned.ipa" Payload
+          zip -qry "$GITHUB_WORKSPACE/PersonalDeepSeek-${BUILD_CONFIGURATION}-unsigned.ipa" Payload
           cd "$GITHUB_WORKSPACE"
-          shasum -a 256 PersonalDeepSeek-unsigned.ipa > PersonalDeepSeek-unsigned.ipa.sha256
+          shasum -a 256 "PersonalDeepSeek-${BUILD_CONFIGURATION}-unsigned.ipa" \
+            > "PersonalDeepSeek-${BUILD_CONFIGURATION}-unsigned.ipa.sha256"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: PersonalDeepSeek-unsigned-${{ github.run_number }}
+          name: PersonalDeepSeek-${{ env.BUILD_CONFIGURATION }}-unsigned-${{ github.run_number }}
           path: |
-            PersonalDeepSeek-unsigned.ipa
-            PersonalDeepSeek-unsigned.ipa.sha256
+            PersonalDeepSeek-${{ env.BUILD_CONFIGURATION }}-unsigned.ipa
+            PersonalDeepSeek-${{ env.BUILD_CONFIGURATION }}-unsigned.ipa.sha256
           if-no-files-found: error
           retention-days: 7
 
