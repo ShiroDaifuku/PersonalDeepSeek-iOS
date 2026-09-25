@@ -59,7 +59,8 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
         let store = MemoryStore(modelContainer: container)
         let now = Date(timeIntervalSince1970: 1_900_000_000)
         let fixture = makeFixture(now: now)
-        let initial = MemoryRetrievalConfiguration()
+        var initial = MemoryRetrievalConfiguration()
+        initial.lexicalGate = 0.18
         let before = await evaluate(configuration: initial, store: store, fixture: fixture, now: now)
 
         var best = (configuration: initial, metrics: before)
@@ -98,7 +99,7 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
         fixture: (records: [MemoryRetrievalRecord], queries: [EvaluationQuery], forbidden: [String: UUID]),
         now: Date
     ) async -> Metrics {
-        let retriever = MemoryRetriever(store: store, semanticResolver: nil, configuration: configuration)
+        let retriever = MemoryRetriever(store: store, semanticResolver: RetrievalEvaluationSemanticResolver(), configuration: configuration)
         var correctTop3 = 0
         var returnedTop3 = 0
         var recall3 = 0
@@ -147,7 +148,7 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
             supersededLeakage: returnedIDs.contains(fixture.forbidden["superseded"]!) ? 1 : 0,
             invalidatedLeakage: returnedIDs.contains(fixture.forbidden["invalidated"]!) ? 1 : 0,
             crossScopeLeakage: returnedIDs.contains(fixture.forbidden["scope"]!) ? 1 : 0,
-            staleEmbeddingUse: 0
+            staleEmbeddingUse: returnedIDs.contains(fixture.forbidden["stale"]!) ? 1 : 0
         )
     }
 
@@ -206,11 +207,24 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
                 status: .active, confirmedAt: now.addingTimeInterval(-Double(offset * 9) * 86_400)
             )
         }
-        let forbidden: [String: UUID] = ["expired": UUID(), "superseded": UUID(), "invalidated": UUID(), "scope": UUID()]
+        let forbidden: [String: UUID] = [
+            "expired": UUID(), "superseded": UUID(), "invalidated": UUID(), "scope": UUID(), "stale": UUID()
+        ]
         records.append(record(id: forbidden["expired"]!, kind: .recentState, text: "用户正在学习二次方程", scope: MemoryScope.localDefault, status: .active, confirmedAt: now, expiresAt: now.addingTimeInterval(-1)))
         records.append(record(id: forbidden["superseded"]!, kind: .event, text: "用户准备去法国巴黎", scope: MemoryScope.localDefault, status: .superseded, confirmedAt: now))
         records.append(record(id: forbidden["invalidated"]!, kind: .recentState, text: "用户关注北京天气", scope: MemoryScope.localDefault, status: .invalidated, confirmedAt: now))
         records.append(record(id: forbidden["scope"]!, kind: .durableFact, text: "用户登过珠穆朗玛峰", scope: "other-scope", status: .active, confirmedAt: now))
+        let staleDescriptor = MemoryEmbeddingDescriptor(
+            provider: "retrieval-evaluation", modelIdentifier: "stale-model", revision: 0,
+            dimension: 2, modelFamily: "evaluation", language: "zh-Hans", semantic: true
+        )
+        let staleVector = try! MemoryEmbeddingVector(descriptor: staleDescriptor, values: [1, 0])
+        let staleText = "用户喜欢古典绘画"
+        let staleData = try! MemoryEmbeddingEnvelope(result: staleVector, text: staleText).encoded()
+        records.append(record(
+            id: forbidden["stale"]!, kind: .preference, text: staleText,
+            scope: MemoryScope.localDefault, status: .active, confirmedAt: now, embeddingData: staleData
+        ))
 
         let queries: [EvaluationQuery] = [
             .init(id: "r01", primary: "SwiftUI 是我偏好的 iOS 界面框架吗？", context: nil, expected: ids["swiftui"], category: "mixed"),
@@ -257,7 +271,8 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
             .init(id: "n12", primary: "明天会下雨吗？", context: nil, expected: nil, category: "none"),
             .init(id: "n13", primary: "莎士比亚出生在哪里？", context: nil, expected: nil, category: "none"),
             .init(id: "n14", primary: "太阳系有几颗行星？", context: nil, expected: nil, category: "none"),
-            .init(id: "n15", primary: "如何修理漏水的水龙头？", context: nil, expected: nil, category: "none")
+            .init(id: "n15", primary: "如何修理漏水的水龙头？", context: nil, expected: nil, category: "none"),
+            .init(id: "n16", primary: "火星殖民需要什么技术？", context: nil, expected: nil, category: "none")
         ]
         return (records, queries, forbidden)
     }
@@ -269,11 +284,12 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
         scope: String,
         status: MemoryStatus,
         confirmedAt: Date,
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        embeddingData: Data? = nil
     ) -> MemoryRetrievalRecord {
         .init(memory: .init(
             id: id, scopeID: scope, kindRawValue: kind.rawValue, canonicalText: text,
-            embeddingData: nil, importance: 0.6, confidence: 0.9, statusRawValue: status.rawValue,
+            embeddingData: embeddingData, importance: 0.6, confidence: 0.9, statusRawValue: status.rawValue,
             createdAt: confirmedAt, updatedAt: confirmedAt, lastConfirmedAt: confirmedAt,
             lastReinforcedAt: nil, expiresAt: expiresAt, reinforcementCount: 1
         ), sources: [])
@@ -312,4 +328,17 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
     }
 
     private func format(_ value: Double) -> String { String(format: "%.3f", value) }
+}
+
+private actor RetrievalEvaluationSemanticResolver: MemorySemanticEmbeddingResolving {
+    static let descriptorValue = MemoryEmbeddingDescriptor(
+        provider: "retrieval-evaluation", modelIdentifier: "current-model", revision: 1,
+        dimension: 2, modelFamily: "evaluation", language: "zh-Hans", semantic: true
+    )
+
+    func descriptor(for text: String) -> MemoryEmbeddingDescriptor? { Self.descriptorValue }
+
+    func embedding(for text: String) throws -> MemoryEmbeddingVector {
+        try .init(descriptor: Self.descriptorValue, values: [1, 0])
+    }
 }

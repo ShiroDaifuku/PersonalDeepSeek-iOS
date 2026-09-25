@@ -52,7 +52,7 @@ struct MemoryRetrievalRecord: Sendable, Equatable {
 
 struct MemoryRetrievalConfiguration: Sendable, Equatable {
     var semanticGate = 0.58
-    var lexicalGate = 0.18
+    var lexicalGate = 0.24
     var semanticRelevanceWeight = 0.78
     var lexicalRelevanceWeight = 0.17
     var entityRelevanceWeight = 0.05
