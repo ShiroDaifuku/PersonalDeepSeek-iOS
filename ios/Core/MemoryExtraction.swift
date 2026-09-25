@@ -266,33 +266,40 @@ enum ExistingMemoryCandidateSelector {
         let active = memories.filter {
             $0.status == .active && ($0.expiresAt == nil || $0.expiresAt! > now)
         }
-        let lexical = active
-            .map { ($0, MemoryLexicalScorer.score(query: query, text: $0.canonicalText)) }
-            .filter { $0.1 > 0 }
-            .sorted { lhs, rhs in
-                lhs.1 == rhs.1 ? lhs.0.updatedAt > rhs.0.updatedAt : lhs.1 > rhs.1
-            }
-            .prefix(20)
-            .map(\.0)
-        let recent = active.sorted { lhs, rhs in
+        var scored: [(memory: MemoryItemSnapshot, score: Int)] = []
+        for memory in active {
+            let score = MemoryLexicalScorer.score(query: query, text: memory.canonicalText)
+            if score > 0 { scored.append((memory, score)) }
+        }
+        scored.sort { lhs, rhs in
+            if lhs.score == rhs.score { return lhs.memory.updatedAt > rhs.memory.updatedAt }
+            return lhs.score > rhs.score
+        }
+        let lexical: [MemoryItemSnapshot] = scored.prefix(20).map { $0.memory }
+
+        var recentSorted = active
+        recentSorted.sort { lhs, rhs in
             let lhsPriority = priority(lhs.kind)
             let rhsPriority = priority(rhs.kind)
             if lhsPriority != rhsPriority { return lhsPriority > rhsPriority }
             return (lhs.lastReinforcedAt ?? lhs.updatedAt) > (rhs.lastReinforcedAt ?? rhs.updatedAt)
-        }.prefix(10)
+        }
+        let recent: [MemoryItemSnapshot] = Array(recentSorted.prefix(10))
 
         var seen = Set<UUID>()
-        return (Array(lexical) + Array(recent)).compactMap { memory in
-            guard seen.insert(memory.id).inserted, seen.count <= 30 else { return nil }
-            return ExistingMemoryCandidate(
+        var output: [ExistingMemoryCandidate] = []
+        for memory in lexical + recent {
+            guard output.count < 30, seen.insert(memory.id).inserted else { continue }
+            output.append(ExistingMemoryCandidate(
                 id: memory.id,
                 kind: memory.kind,
                 canonicalText: memory.canonicalText,
                 importance: memory.importance,
                 confidence: memory.confidence,
                 updatedAt: memory.updatedAt
-            )
+            ))
         }
+        return output
     }
 
     private static func priority(_ kind: MemoryKind) -> Int {
