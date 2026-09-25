@@ -49,10 +49,12 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 14) {
                         ForEach(orderedMessages) { message in
-                            MessageBubble(message: message, isStreaming: isStreaming && orderedMessages.last?.id == message.id)
-                        }
-                        if isStreaming, orderedMessages.last?.content.isEmpty == true, orderedMessages.last?.reasoning.isEmpty == true {
-                            HStack { ProgressView().controlSize(.small); Text(toolStatus ?? "正在思考…").font(.callout).foregroundStyle(.secondary); Spacer() }.padding(.horizontal)
+                            MessageBubble(
+                                message: message,
+                                isStreaming: isStreaming && orderedMessages.last?.id == message.id,
+                                animationActive: scenePhase == .active && !showingConversations,
+                                onStop: cancelGeneration
+                            )
                         }
                     }.padding(.horizontal, 12).padding(.vertical, 16)
                 }
@@ -60,20 +62,13 @@ struct ChatView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .background(Color(.systemGroupedBackground))
             } else { ContentUnavailableView("开始对话", systemImage: "sparkles", description: Text("对话、知识库和研究都在这台设备上编排。")) }
-            if let toolStatus, isStreaming {
-                HStack(spacing: 10) {
-                    MascotVideoView(mode: .thinking, isPlaying: scenePhase == .active && !showingConversations)
-                        .aspectRatio(3.0 / 4.0, contentMode: .fit)
-                        .frame(width: 54, height: 72)
-                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                        .overlay { RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 1) }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("正在思考", systemImage: "brain.head.profile").font(.caption.weight(.semibold))
-                        Text(toolStatus).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 12).padding(.top, 6)
+            if let toolStatus, isStreaming, !activeAssistantHasOutput {
+                ThinkingStatusCard(
+                    status: toolStatus,
+                    animationActive: scenePhase == .active && !showingConversations,
+                    onStop: cancelGeneration
+                )
+                .padding(.horizontal, 12).padding(.top, 7)
             }
             if let errorText { Text(errorText).foregroundStyle(.red).font(.caption).padding(.horizontal) }
             if !attachments.isEmpty { AttachmentStrip(attachments: attachments) { id in attachments.removeAll { $0.id == id } } }
@@ -135,13 +130,17 @@ struct ChatView: View {
                 }
             } label: { Image(systemName: "plus").font(.body.weight(.semibold)).frame(width: 34, height: 34).background(.thinMaterial, in: Circle()) }.disabled(isStreaming)
             TextField(manualTool?.title ?? "询问任何问题", text: $input, axis: .vertical).lineLimit(1...6).focused($composerFocused).padding(.horizontal, 13).padding(.vertical, 9).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            Button { if isStreaming { streamTask?.cancel() } else { composerFocused = false; send() } } label: {
+            Button { if isStreaming { cancelGeneration() } else { composerFocused = false; send() } } label: {
                 Image(systemName: isStreaming ? "stop.fill" : "arrow.up").font(.body.weight(.bold)).foregroundStyle(.white).frame(width: 36, height: 36).background(isStreaming ? Color.red : Color.accentColor, in: Circle())
             }.disabled(!isStreaming && input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty).accessibilityLabel(isStreaming ? "停止生成" : "发送")
         }.padding(.horizontal, 12).padding(.vertical, 10).background(.bar)
     }
 
     private var taskAPI: TaskAPI? { guard let url = URL(string: cloudServiceURL), !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
+    private var activeAssistantHasOutput: Bool {
+        guard let last = current?.messages.max(by: { $0.createdAt < $1.createdAt }), last.role == "assistant" else { return false }
+        return !last.reasoning.isEmpty || !last.content.isEmpty
+    }
 
     @MainActor private func selectManualTool(_ tool: ComposerToolMode) {
         manualTool = tool
@@ -166,24 +165,27 @@ struct ChatView: View {
         let requestText = displayText + fileSections
         let imageDataURLs = attachments.filter(\.isImage).map(\.dataURL)
         let selectedManualTool = manualTool
+        let preferredTool = selectedManualTool?.preferredTool ?? AssistantIntentRouter.preferredTool(for: requestText)
         if current == nil { createConversation() }; guard let conversation = current else { return }
         if selectedManualTool == .deepResearch { conversation.mode = "research" }
         let history = conversation.messages.sorted { $0.createdAt < $1.createdAt }
         let attachmentNames = attachments.map(\.name)
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation), assistant = ChatMessage(role: "assistant", conversation: conversation)
-        context.insert(user); context.insert(assistant); input = ""; attachments = []; photoSelection = []; manualTool = nil; isStreaming = true; errorText = nil; toolStatus = selectedManualTool == nil ? "正在判断是否需要工具…" : "正在准备\(selectedManualTool!.title)…"
+        context.insert(user); context.insert(assistant); input = ""; attachments = []; photoSelection = []; manualTool = nil; isStreaming = true; errorText = nil
+        toolStatus = selectedManualTool.map { "正在准备\($0.title)…" } ?? (preferredTool == nil ? "正在连接模型…" : "正在准备所需工具…")
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
         let planningMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
         streamTask = Task {
             do {
-                let tasks = (try? await taskAPI?.list()) ?? []
-                let preferredTool = selectedManualTool?.preferredTool ?? AssistantIntentRouter.preferredTool(for: requestText)
+                try Task.checkCancellation()
+                let tasks = preferredTool == "edit_scheduled_task" ? ((try? await taskAPI?.list()) ?? []) : []
                 let calls: [AssistantToolCall]
-                let knowledgeDescriptors = LocalKnowledgeCloudSync.descriptors(from: knowledgeBases)
-                do { calls = try await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks, knowledgeBases: knowledgeDescriptors, preferredTool: preferredTool) }
-                catch {
-                    if preferredTool != nil { throw NSError(domain: "AssistantTools", code: 1, userInfo: [NSLocalizedDescriptionKey: "工具规划失败：\(error.localizedDescription)"] ) }
+                if let preferredTool {
+                    let knowledgeDescriptors = LocalKnowledgeCloudSync.descriptors(from: knowledgeBases)
+                    do { calls = try await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks, knowledgeBases: knowledgeDescriptors, preferredTool: preferredTool) }
+                    catch { throw NSError(domain: "AssistantTools", code: 1, userInfo: [NSLocalizedDescriptionKey: "工具规划失败：\(error.localizedDescription)"] ) }
+                } else {
                     calls = []
                 }
                 var referenceSections: [String] = []
@@ -207,6 +209,7 @@ struct ChatView: View {
                     case .manageKnowledge(let action):
                         try prepareKnowledgeAction(action, assistant: assistant)
                     }
+                    try Task.checkCancellation()
                 }
                 if pendingTaskAction != nil { assistant.content = "我已经整理好定时任务变更。请在确认页核对时间、时区、提示词、联网工具、知识库和通知设置；确认前不会保存。" }
                 else if pendingKnowledgeAction != nil { assistant.content = "我已经准备好知识库变更，请在确认页核对；确认前不会修改本地资料。" }
@@ -215,10 +218,28 @@ struct ChatView: View {
                 else {
                     toolStatus = referenceSections.isEmpty ? "正在生成回答…" : "工具执行完成，正在整理回答…"
                     let requestMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, knowledgeContext: referenceSections.joined(separator: "\n\n"), newUserText: requestText, imageDataURLs: imageDataURLs)
-                    for try await delta in APIClient().stream(messages: requestMessages, model: conversation.model, thinking: thinking, reasoningEffort: effort) { switch delta { case .reasoning(let value): assistant.reasoning += value; case .content(let value): assistant.content += value; default: break } }
+                    var pendingReasoning = "", pendingContent = ""
+                    var lastRender = Date.distantPast
+                    for try await delta in APIClient().stream(messages: requestMessages, model: conversation.model, thinking: thinking, reasoningEffort: effort) {
+                        try Task.checkCancellation()
+                        var forceRender = false
+                        switch delta {
+                        case .reasoning(let value): pendingReasoning += value
+                        case .content(let value): pendingContent += value
+                        case .done: forceRender = true
+                        case .usage: break
+                        }
+                        if forceRender || Date().timeIntervalSince(lastRender) >= 0.1 {
+                            assistant.reasoning += pendingReasoning; pendingReasoning = ""
+                            assistant.content += pendingContent; pendingContent = ""
+                            lastRender = Date()
+                        }
+                    }
+                    assistant.reasoning += pendingReasoning
+                    assistant.content += pendingContent
                 }
             } catch is CancellationError {
-                // Preserve partial output when explicitly stopped.
+                if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
             } catch { if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }; errorText = error.localizedDescription }
             await LiveActivityManager.shared.finish(detail: assistant.content.isEmpty ? "生成已停止" : "回答已完成", success: !assistant.content.isEmpty)
             finishGeneration()
@@ -228,6 +249,15 @@ struct ChatView: View {
     @MainActor private func finishGeneration() {
         isStreaming = false; streamTask = nil; toolStatus = nil; try? context.save()
         AppGroupSnapshotStore.updateConversations(conversations.map { value in let preview = value.messages.sorted { $0.createdAt < $1.createdAt }.last?.content ?? ""; return .init(id: value.id.uuidString, title: value.title, preview: String(preview.prefix(120))) })
+    }
+
+    @MainActor private func cancelGeneration() {
+        guard isStreaming else { return }
+        streamTask?.cancel()
+        streamTask = nil
+        isStreaming = false
+        toolStatus = nil
+        try? context.save()
     }
 
     private func confirmTask(_ action: PendingTaskAction) {
@@ -316,6 +346,8 @@ struct ChatView: View {
 private struct MessageBubble: View {
     let message: ChatMessage
     let isStreaming: Bool
+    let animationActive: Bool
+    let onStop: () -> Void
     private var isUser: Bool { message.role == "user" }
     var body: some View {
         Group {
@@ -331,8 +363,19 @@ private struct MessageBubble: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    if !message.reasoning.isEmpty { ReasoningStrip(reasoning: message.reasoning, isStreaming: isStreaming) }
-                    if !message.content.isEmpty { RichMessageView(text: message.content).frame(maxWidth: .infinity, alignment: .leading) }
+                    if !message.reasoning.isEmpty {
+                        ReasoningStrip(reasoning: message.reasoning, isStreaming: isStreaming, animationActive: animationActive, onStop: onStop)
+                    }
+                    if !message.content.isEmpty {
+                        if isStreaming {
+                            Text(message.content)
+                                .font(.body)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            RichMessageView(text: message.content).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                     if !message.content.isEmpty { messageActions }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 2)
             }
@@ -347,36 +390,129 @@ private struct MessageBubble: View {
     }
 }
 
+private struct ThinkingStatusCard: View {
+    let status: String
+    let animationActive: Bool
+    let onStop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ThinkingAvatar(isPlaying: animationActive, size: 58)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 7) {
+                    Text("正在思考").font(.subheadline.weight(.semibold)).foregroundStyle(.tint)
+                    ProgressView().controlSize(.mini)
+                    Spacer()
+                }
+                HStack(spacing: 5) {
+                    Capsule().fill(Color.accentColor.opacity(0.55)).frame(height: 6)
+                    Capsule().fill(Color.accentColor.opacity(0.32)).frame(width: 54, height: 6)
+                    Capsule().fill(Color.accentColor.opacity(0.16)).frame(width: 34, height: 6)
+                }
+                Text(status).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Button(action: onStop) {
+                Image(systemName: "stop.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.red, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("停止生成")
+        }
+        .padding(12)
+        .background(
+            LinearGradient(colors: [Color(.secondarySystemBackground), Color.accentColor.opacity(0.07)], startPoint: .leading, endPoint: .trailing),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay { RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06), lineWidth: 1) }
+    }
+}
+
+private struct ThinkingAvatar: View {
+    let isPlaying: Bool
+    let size: CGFloat
+
+    var body: some View {
+        MascotVideoView(mode: .thinking, isPlaying: isPlaying)
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            .overlay { Circle().stroke(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 3) }
+            .shadow(color: .cyan.opacity(0.24), radius: 6)
+    }
+}
+
 private struct ReasoningStrip: View {
     let reasoning: String
     let isStreaming: Bool
+    let animationActive: Bool
+    let onStop: () -> Void
     @State private var expanded: Bool
-    init(reasoning: String, isStreaming: Bool) { self.reasoning = reasoning; self.isStreaming = isStreaming; _expanded = State(initialValue: isStreaming) }
+    init(reasoning: String, isStreaming: Bool, animationActive: Bool, onStop: @escaping () -> Void) {
+        self.reasoning = reasoning
+        self.isStreaming = isStreaming
+        self.animationActive = animationActive
+        self.onStop = onStop
+        _expanded = State(initialValue: isStreaming)
+    }
     private var characterCount: Int { reasoning.filter { !$0.isWhitespace }.count }
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() } } label: {
-                HStack(spacing: 7) {
-                    if isStreaming { ProgressView().controlSize(.mini) } else { Image(systemName: "checkmark.circle") }
-                    Text("\(isStreaming ? "思考中" : "已思考") · \(characterCount) 字").font(.caption.weight(.medium))
-                    Spacer()
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2)
-                }.foregroundStyle(.secondary)
-            }.buttonStyle(.plain)
-            if expanded {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical) {
-                        Text(reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).id("reasoning-bottom")
+        Group {
+            if isStreaming {
+                HStack(alignment: .top, spacing: 12) {
+                    ThinkingAvatar(isPlaying: animationActive, size: 60)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 7) {
+                            Text("思考中").font(.subheadline.weight(.semibold)).foregroundStyle(.tint)
+                            Text("\(characterCount) 字").font(.caption2).foregroundStyle(.secondary)
+                            ProgressView().controlSize(.mini)
+                            Spacer()
+                            Button(action: onStop) {
+                                Image(systemName: "stop.fill").font(.caption2.weight(.bold)).foregroundStyle(.white)
+                                    .frame(width: 27, height: 27).background(Color.red, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("停止生成")
+                        }
+                        ScrollViewReader { proxy in
+                            ScrollView(.vertical) {
+                                Text(reasoning)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id("reasoning-bottom")
+                            }
+                            .frame(height: 66)
+                            .scrollIndicators(.hidden)
+                            .onChange(of: reasoning) { _, _ in proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
+                            .onAppear { proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
+                        }
                     }
-                    .frame(height: 92)
-                    .onChange(of: reasoning) { _, _ in proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
-                    .onAppear { proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Button { withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() } } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "checkmark.circle")
+                            Text("已思考 · \(characterCount) 字").font(.caption.weight(.medium))
+                            Spacer()
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2)
+                        }.foregroundStyle(.secondary)
+                    }.buttonStyle(.plain)
+                    if expanded {
+                        Text(reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
                 }
             }
         }
-        .padding(.horizontal, 11).padding(.vertical, 8)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(Color.accentColor.opacity(0.55)).frame(width: 3).padding(.vertical, 8) }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(
+            LinearGradient(colors: [Color(.secondarySystemBackground), Color.accentColor.opacity(isStreaming ? 0.06 : 0.02)], startPoint: .leading, endPoint: .trailing),
+            in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+        )
+        .overlay { RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Color.primary.opacity(0.06), lineWidth: 1) }
         .onChange(of: isStreaming) { _, active in withAnimation(.easeInOut(duration: 0.2)) { expanded = active } }
     }
 }

@@ -16,6 +16,13 @@ struct SSEParser {
         }
         return output
     }
+    mutating func appendLine(_ value: String) -> [StreamDelta] {
+        var line = value
+        if line.last == "\r" { line.removeLast() }
+        var output: [StreamDelta] = []
+        consume(line, into: &output)
+        return output
+    }
     mutating func finish() -> [StreamDelta] {
         var output: [StreamDelta] = []; if !buffer.isEmpty { consume(String(decoding: buffer, as: UTF8.self), into: &output); buffer.removeAll() }; flush(into: &output); return output
     }

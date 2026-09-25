@@ -115,12 +115,14 @@ final class AssistantToolPlanner: Sendable {
         else { body["tool_choice"] = "auto" }
         var request = URLRequest(url: URL(string: "https://api.deepseek.com/beta/chat/completions")!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 90
+        request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue(UUID().uuidString, forHTTPHeaderField: "X-Request-ID")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        try Task.checkCancellation()
         let (data, response) = try await URLSession.shared.data(for: request)
+        try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse else { throw ClientError.invalidConfiguration }
         guard (200..<300).contains(http.statusCode) else { throw ClientError.badResponse(http.statusCode) }
         let calls = try JSONDecoder().decode(ToolPlanResponse.self, from: data).choices.first?.message.toolCalls ?? []

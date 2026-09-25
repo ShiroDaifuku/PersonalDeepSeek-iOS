@@ -18,8 +18,18 @@ struct ConversationSidebarView: View {
                 Spacer()
                 Button(action: onClose) { Image(systemName: "xmark") }.buttonStyle(.plain).accessibilityLabel("关闭侧栏")
             }.padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 12)
+            AssistantHeroCard(isThinking: isThinking, isPlaying: animationActive)
+                .padding(.horizontal, 12).padding(.bottom, 12)
             Button { create() } label: {
-                Label("开启新对话", systemImage: "square.and.pencil").fontWeight(.semibold).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                Label("开启新对话", systemImage: "plus")
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(
+                        LinearGradient(colors: [Color(red: 0.18, green: 0.55, blue: 1), Color(red: 0.08, green: 0.38, blue: 0.92)], startPoint: .leading, endPoint: .trailing),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
             }.buttonStyle(.plain).padding(.horizontal, 12)
             TextField("搜索历史对话", text: $search).textFieldStyle(.roundedBorder).padding(12)
             List {
@@ -28,25 +38,6 @@ struct ConversationSidebarView: View {
                 if filtered.isEmpty { ContentUnavailableView("暂无会话", systemImage: "bubble.left.and.bubble.right") }
             }
             .listStyle(.plain)
-            VStack(spacing: 0) {
-                MascotVideoView(mode: isThinking ? .thinking : .idle, isPlaying: animationActive)
-                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
-                    .frame(maxHeight: 196)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        Label(isThinking ? "思考中" : "待机", systemImage: isThinking ? "brain.head.profile" : "sparkles")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .padding(8)
-                    }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 12).padding(.bottom, 10)
         }.background(.regularMaterial)
     }
 
@@ -76,6 +67,45 @@ struct ConversationSidebarView: View {
     private func remove(_ conversation: Conversation) {
         if selection?.id == conversation.id { selection = conversations.first(where: { $0.id != conversation.id }) }
         context.delete(conversation); try? context.save()
+    }
+}
+
+private struct AssistantHeroCard: View {
+    let isThinking: Bool
+    let isPlaying: Bool
+
+    var body: some View {
+        MascotVideoView(mode: .idle, isPlaying: isPlaying)
+            .aspectRatio(960.0 / 492.0, contentMode: .fit)
+            .overlay(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("AI ASSISTANT")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .tracking(0.8)
+                    Text("DS 娘")
+                        .font(.title2.bold())
+                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Circle().fill(isThinking ? Color.cyan : Color.green).frame(width: 7, height: 7)
+                        Text(isThinking ? "正在思考" : "随时待命")
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.9))
+                    Text("陪你对话、搜索和整理资料")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(2)
+                        .frame(maxWidth: 126, alignment: .leading)
+                }
+                .padding(.leading, 18)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 19, style: .continuous)
+                    .stroke(.white.opacity(0.16), lineWidth: 1)
+            }
+            .shadow(color: Color.indigo.opacity(0.2), radius: 12, y: 6)
     }
 }
 

@@ -17,4 +17,14 @@ final class SSEParserTests: XCTestCase {
         XCTAssertEqual(parser.append(Data(bytes[0...split])), [])
         XCTAssertEqual(parser.append(Data(bytes[(split + 1)...])), [.content("中文")])
     }
+
+    func testLineBasedParsingHandlesKeepAliveAndBlankDelimiter() {
+        var parser = SSEParser()
+        XCTAssertEqual(parser.appendLine(": keep-alive"), [])
+        XCTAssertEqual(parser.appendLine(""), [])
+        XCTAssertEqual(parser.appendLine(#"data: {"choices":[{"delta":{"reasoning_content":"分析"}}]}"#), [])
+        XCTAssertEqual(parser.appendLine(""), [.reasoning("分析")])
+        XCTAssertEqual(parser.appendLine("data: [DONE]"), [])
+        XCTAssertEqual(parser.appendLine(""), [.done])
+    }
 }

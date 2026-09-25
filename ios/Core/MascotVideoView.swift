@@ -23,13 +23,14 @@ enum MascotVideoMode: Equatable {
 
 struct MascotVideoView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     let mode: MascotVideoMode
     let isPlaying: Bool
 
     var body: some View {
         LoopingVideoRepresentable(
             resourceName: mode.resourceName,
-            isPlaying: isPlaying && !reduceMotion
+            isPlaying: isPlaying && !reduceMotion && scenePhase == .active
         )
         .background(Color.white)
         .accessibilityElement(children: .ignore)
