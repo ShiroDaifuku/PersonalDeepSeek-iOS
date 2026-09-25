@@ -79,11 +79,18 @@ jobs:
 
       - name: Verify Debug evaluation entry
         if: env.BUILD_CONFIGURATION == 'Debug'
+        working-directory: ios
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphoneos/PersonalDeepSeek.app"
           test -d "$app"
-          strings "$app/PersonalDeepSeek" | grep -q 'MemorySemanticEvaluationView'
+          grep -q 'MemorySemanticEvaluationView.swift' "$RUNNER_TEMP/xcodebuild.log"
+          xcodebuild \
+            -project PersonalDeepSeek.xcodeproj \
+            -scheme PersonalDeepSeek \
+            -configuration Debug \
+            -showBuildSettings \
+            | grep -E 'SWIFT_ACTIVE_COMPILATION_CONDITIONS = .*DEBUG'
 
       - name: Package unsigned IPA
         run: |
