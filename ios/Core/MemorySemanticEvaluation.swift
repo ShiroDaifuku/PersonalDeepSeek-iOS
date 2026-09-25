@@ -155,7 +155,7 @@ actor MemorySemanticPhysicalDeviceEvaluator {
         let report = MemorySemanticEvaluationReport(
             generatedAt: Date(), device: device,
             benchmarkQueryCount: fixture.queries.count,
-            lowOverlapQueryCount: fixture.queries.filter(\.lowOverlap).count,
+            lowOverlapQueryCount: fixture.queries.filter { $0.lowOverlap && $0.mustRetrieve != nil }.count,
             providers: runs.map(\.report),
             modes: [lexical] + runs.flatMap { [$0.semantic, $0.hybrid].compactMap { $0 } },
             decision: decision, finalGate: finalGate,
@@ -683,7 +683,7 @@ private enum MemorySemanticEvaluationBenchmark {
             queries.count,
             queries.filter { $0.mustRetrieve != nil }.count,
             queries.filter { $0.mustRetrieve == nil }.count,
-            queries.filter { $0.lowOverlap }.count
+            queries.filter { $0.lowOverlap && $0.mustRetrieve != nil }.count
         )
     }
 
