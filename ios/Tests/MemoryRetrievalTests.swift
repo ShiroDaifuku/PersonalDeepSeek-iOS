@@ -42,7 +42,7 @@ final class MemoryRetrievalTests: XCTestCase {
             now: now.addingTimeInterval(-90 * 86_400)
         )
         let retriever = MemoryRetriever(store: store, semanticResolver: TestSemanticResolver())
-        let result = try await retriever.search(.init(primaryText: "语义查询"), now: now)
+        let result = try await retriever.search(.init(primaryText: "请按我的偏好推荐"), now: now)
         XCTAssertEqual(result.first?.memoryID, oldRelevant.id)
         XCTAssertFalse(result.contains { $0.memoryID == recentWeak.id })
     }

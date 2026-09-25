@@ -56,6 +56,7 @@ struct SettingsView: View {
             #if DEBUG
             Section("开发者") {
                 NavigationLink("Memory 真机语义评测") { MemorySemanticEvaluationView() }
+                NavigationLink("Memory Semantic Precision 调优") { MemorySemanticPrecisionView() }
                 Text("只在 DEBUG 构建显示；不会读取或修改真实 Memory。")
                     .font(.caption).foregroundStyle(.secondary)
             }

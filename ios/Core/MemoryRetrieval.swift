@@ -51,8 +51,12 @@ struct MemoryRetrievalRecord: Sendable, Equatable {
 }
 
 struct MemoryRetrievalConfiguration: Sendable, Equatable {
-    var semanticGate = 0.58
     var lexicalGate = 0.27
+    var semanticConfidence = MemorySemanticConfidenceConfiguration()
+    var semanticGate: Double {
+        get { semanticConfidence.minimumAbsoluteSemantic }
+        set { semanticConfidence.minimumAbsoluteSemantic = newValue }
+    }
     var semanticRelevanceWeight = 0.78
     var lexicalRelevanceWeight = 0.17
     var entityRelevanceWeight = 0.05
@@ -61,7 +65,9 @@ struct MemoryRetrievalConfiguration: Sendable, Equatable {
     var importanceWeight = 0.07
     var reinforcementWeight = 0.05
     var reinforcementK = 0.55
-    var maximumResults = 5
+    var maximumResults = 2
+    var maximumSemanticResults = 1
+    var maximumLexicalResults = 1
 
     func halfLifeDays(for kind: MemoryKind) -> Double {
         switch kind {
@@ -81,12 +87,9 @@ protocol MemorySemanticEmbeddingResolving: Sendable {
 }
 
 actor MemorySemanticEmbeddingResolver: MemorySemanticEmbeddingResolving {
-    private let sentence = NLSentenceMemoryEmbeddingProvider()
     @available(iOS 17.0, *) private lazy var contextual = NLContextualMemoryEmbeddingProvider()
 
     func descriptor(for text: String) async -> MemoryEmbeddingDescriptor? {
-        let sentenceState = await sentence.availability(for: text)
-        if let descriptor = Self.descriptor(from: sentenceState) { return descriptor }
         if #available(iOS 17.0, *) {
             let contextualState = await contextual.prepare(for: text, requestAssetDownload: false)
             if contextualState.hasAvailableAssets, contextualState.loaded {
@@ -97,9 +100,6 @@ actor MemorySemanticEmbeddingResolver: MemorySemanticEmbeddingResolving {
     }
 
     func embedding(for text: String) async throws -> MemoryEmbeddingVector {
-        if await descriptor(for: text)?.provider == sentence.providerIdentifier {
-            return try await sentence.embedding(for: text)
-        }
         if #available(iOS 17.0, *) {
             let state = await contextual.prepare(for: text, requestAssetDownload: false)
             if state.hasAvailableAssets, state.loaded { return try await contextual.embedding(for: text) }
@@ -150,25 +150,15 @@ actor MemoryRetriever {
         records: [MemoryRetrievalRecord],
         now: Date = Date()
     ) async -> [MemoryRetrievalResult] {
+        let evaluated = await evaluateCandidates(input, records: records, now: now)
+        let acceptedIDs = Set(evaluated.filter(\.accepted).map(\.memoryID))
+        guard !acceptedIDs.isEmpty else { return [] }
         let query = input.combinedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty, !input.scopeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-
         let queryVector = try? await semanticResolver?.embedding(for: query)
         var staged: [(MemoryItemSnapshot, Bool, Double, Double, Bool, Double, Double, Double, Double, Double)] = []
-        for record in records {
+        for record in records where acceptedIDs.contains(record.memory.id) {
             let item = record.memory
             let canonical = item.canonicalText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard item.scopeID == input.scopeID,
-                  item.status == .active,
-                  item.expiresAt.map({ $0 > now }) ?? true,
-                  !canonical.isEmpty
-            else { continue }
-            if let excluded = input.excludingConversationID,
-               !record.sources.isEmpty,
-               record.sources.allSatisfy({ $0.sourceConversationID == excluded }) {
-                continue
-            }
-
             let lexical = MemoryLexicalRelevance.score(query: query, candidate: canonical)
             let entity = MemoryLexicalRelevance.entityMatch(query: query, candidate: canonical)
             var semanticAvailable = false
@@ -181,11 +171,6 @@ actor MemoryRetriever {
                 semanticAvailable = true
                 semantic = max(0, cosine)
             }
-            let lexicalEntity = max(lexical, entity ? 1 : 0)
-            guard (semanticAvailable && semantic >= configuration.semanticGate) || lexicalEntity >= configuration.lexicalGate else {
-                continue
-            }
-
             let relevance: Double
             if semanticAvailable {
                 relevance = clamp(
@@ -221,6 +206,118 @@ actor MemoryRetriever {
                 entityMatch: value.4, relevanceScore: value.5, recencyScore: value.6,
                 importanceScore: value.7, reinforcementScore: value.8, finalScore: value.9,
                 rank: offset + 1, lastConfirmedAt: value.0.lastConfirmedAt, expiresAt: value.0.expiresAt
+            )
+        }
+    }
+
+    func evaluateCandidates(
+        _ input: MemoryRetrievalInput,
+        records: [MemoryRetrievalRecord],
+        now: Date = Date()
+    ) async -> [MemoryCandidateEvaluation] {
+        let query = input.combinedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, !input.scopeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let queryVector = try? await semanticResolver?.embedding(for: query)
+        struct Working {
+            let item: MemoryItemSnapshot
+            let lexical: Double
+            let entity: Bool
+            let semantic: Double?
+            var eligibilityRejection: MemoryCandidateRejectionReason?
+        }
+        var working: [Working] = []
+        for record in records {
+            let item = record.memory
+            let canonical = item.canonicalText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rejection: MemoryCandidateRejectionReason?
+            if item.scopeID != input.scopeID { rejection = .wrongScope }
+            else if item.status == .superseded { rejection = .superseded }
+            else if item.status == .invalidated { rejection = .invalidated }
+            else if item.expiresAt.map({ $0 <= now }) ?? false { rejection = .expired }
+            else if canonical.isEmpty { rejection = .emptyText }
+            else if let excluded = input.excludingConversationID,
+                    !record.sources.isEmpty,
+                    record.sources.allSatisfy({ $0.sourceConversationID == excluded }) { rejection = .currentConversationOnly }
+            else { rejection = nil }
+            let lexical = MemoryLexicalRelevance.score(query: query, candidate: canonical)
+            let entity = MemoryLexicalRelevance.entityMatch(query: query, candidate: canonical)
+            var semantic: Double?
+            if rejection == nil, let queryVector, let data = item.embeddingData,
+               let envelope = try? MemoryEmbeddingEnvelope.decode(data),
+               envelope.isCurrent(for: canonical, descriptor: queryVector.descriptor),
+               let cosine = MemoryVectorMath.cosine(queryVector.values, envelope.vector) {
+                semantic = max(0, cosine)
+            }
+            working.append(.init(item: item, lexical: lexical, entity: entity, semantic: semantic, eligibilityRejection: rejection))
+        }
+        let eligibleSemantic = working.compactMap { $0.eligibilityRejection == nil ? $0.semantic : nil }
+        let statistics = MemorySemanticQueryStatistics.make(
+            scores: eligibleSemantic, epsilon: configuration.semanticConfidence.epsilon
+        )
+        let semanticTopID = working.filter { $0.eligibilityRejection == nil && $0.semantic != nil }.max {
+            ($0.semantic ?? 0) < ($1.semantic ?? 0)
+        }?.item.id
+        let lexicalIDs = Set(working.filter {
+            $0.eligibilityRejection == nil && max($0.lexical, $0.entity ? 1 : 0) >= configuration.lexicalGate
+        }.sorted {
+            max($0.lexical, $0.entity ? 1 : 0) > max($1.lexical, $1.entity ? 1 : 0)
+        }.prefix(max(0, configuration.maximumLexicalResults)).map { $0.item.id })
+
+        var evaluations: [MemoryCandidateEvaluation] = []
+        for value in working {
+            let usefulness = MemoryUsefulnessGate.evaluate(
+                kind: value.item.kind, query: query, statistics: statistics,
+                configuration: configuration.semanticConfidence
+            )
+            var reasons: [MemoryCandidateRejectionReason] = []
+            if let rejection = value.eligibilityRejection { reasons.append(rejection) }
+            let lexicalAccepted = value.eligibilityRejection == nil && lexicalIDs.contains(value.item.id)
+            var semanticAccepted = false
+            if value.eligibilityRejection == nil, let semantic = value.semantic, let statistics {
+                if value.item.id != semanticTopID { reasons.append(.notTopSemanticCandidate) }
+                else {
+                    if semantic < configuration.semanticConfidence.minimumAbsoluteSemantic { reasons.append(.belowAbsoluteSemantic) }
+                    let distributionPassed = statistics.top1Top2Margin >= configuration.semanticConfidence.minimumTopMargin ||
+                        statistics.top1MedianGap >= configuration.semanticConfidence.minimumMedianGap ||
+                        statistics.robustZ >= configuration.semanticConfidence.minimumRobustZ
+                    if !distributionPassed {
+                        reasons.append(.insufficientMargin)
+                        reasons.append(.insufficientDistributionGap)
+                    }
+                    if !usefulness.kindCompatible { reasons.append(.intentKindIncompatible) }
+                    semanticAccepted = reasons.isEmpty
+                }
+            } else if value.eligibilityRejection == nil {
+                reasons.append(.staleEmbedding)
+            }
+            if !lexicalAccepted && value.eligibilityRejection == nil && !semanticAccepted &&
+                max(value.lexical, value.entity ? 1 : 0) < configuration.lexicalGate {
+                reasons.append(.belowLexicalGate)
+            }
+            evaluations.append(.init(
+                memoryID: value.item.id, kind: value.item.kind, semanticScore: value.semantic,
+                lexicalScore: value.lexical, entityMatch: value.entity, semanticStatistics: statistics,
+                queryIntent: usefulness.intent, kindCompatible: usefulness.kindCompatible,
+                acceptedByLexicalPath: lexicalAccepted, acceptedBySemanticPath: semanticAccepted,
+                accepted: lexicalAccepted || semanticAccepted,
+                rejectionReasons: lexicalAccepted || semanticAccepted ? [] : Array(Set(reasons)).sorted { $0.rawValue < $1.rawValue }
+            ))
+        }
+        let accepted = evaluations.filter(\.accepted).sorted {
+            let left = max($0.entityMatch ? 1 : $0.lexicalScore, $0.semanticScore ?? 0)
+            let right = max($1.entityMatch ? 1 : $1.lexicalScore, $1.semanticScore ?? 0)
+            return left > right
+        }
+        let allowed = Set(accepted.prefix(max(0, configuration.maximumResults)).map(\.memoryID))
+        return evaluations.map { value in
+            guard value.accepted, !allowed.contains(value.memoryID) else { return value }
+            return .init(
+                memoryID: value.memoryID, kind: value.kind, semanticScore: value.semanticScore,
+                lexicalScore: value.lexicalScore, entityMatch: value.entityMatch,
+                semanticStatistics: value.semanticStatistics, queryIntent: value.queryIntent,
+                kindCompatible: value.kindCompatible, acceptedByLexicalPath: value.acceptedByLexicalPath,
+                acceptedBySemanticPath: value.acceptedBySemanticPath, accepted: false,
+                rejectionReasons: [.resultLimit]
             )
         }
     }
