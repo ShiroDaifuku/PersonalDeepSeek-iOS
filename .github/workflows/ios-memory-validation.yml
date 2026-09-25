@@ -97,6 +97,66 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/memory-tests.log"
 
+      - name: Run embedding provider evaluation
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xctestrun="$(find "$RUNNER_TEMP/MemoryValidationDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
+          test -n "$xctestrun"
+          python3 - "$xctestrun" <<'PY'
+          import plistlib
+          import sys
+
+          path = sys.argv[1]
+          with open(path, "rb") as source:
+              document = plistlib.load(source)
+          injected = 0
+          def visit(value):
+              global injected
+              if isinstance(value, dict):
+                  if "TestBundlePath" in value:
+                      environment = value.setdefault("EnvironmentVariables", {})
+                      environment["RUN_MEMORY_PROVIDER_EVALUATION"] = "1"
+                      environment["REQUEST_CONTEXTUAL_ASSETS"] = "1"
+                      injected += 1
+                  for child in value.values():
+                      visit(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      visit(child)
+          visit(document)
+          if injected == 0:
+              raise SystemExit("No XCTest configuration found")
+          with open(path, "wb") as destination:
+              plistlib.dump(document, destination)
+          PY
+          xcodebuild \
+            -xctestrun "$xctestrun" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/MemoryEmbeddingProviderEvaluationTests/testEmbeddingProvidersAgainstMultilingualBenchmark \
+            test-without-building \
+            | tee "$RUNNER_TEMP/memory-provider-evaluation.log"
+
+      - name: Collect provider evaluation report
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/memory-provider-evaluation"
+          simulator_root="$HOME/Library/Developer/CoreSimulator/Devices/$SIMULATOR_ID/data/Containers/Data/Application"
+          find "$simulator_root" -type f \
+            \( -name 'memory-provider-evaluation.json' -o -name 'memory-provider-evaluation.md' \) \
+            -exec cp {} "$RUNNER_TEMP/memory-provider-evaluation/" \; 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-provider-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
+
+      - name: Upload provider evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-provider-evaluation-${{ github.run_id }}
+          path: ${{ runner.temp }}/memory-provider-evaluation
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Print test summary and Memory warnings
         if: always()
         run: |
