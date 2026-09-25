@@ -1,0 +1,83 @@
+name: Build iOS Memory Evaluation IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-memory-evaluation-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Unsigned Debug device build
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build unsigned Debug app for physical devices
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PersonalDeepSeek.xcodeproj \
+            -scheme PersonalDeepSeek \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/MemoryEvaluationDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            clean build \
+            | tee "$RUNNER_TEMP/memory-evaluation-device-build.log"
+
+      - name: Verify DEBUG evaluation entry is present
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/MemoryEvaluationDerivedData/Build/Products/Debug-iphoneos/PersonalDeepSeek.app"
+          test -d "$app"
+          binary="$app/PersonalDeepSeek"
+          test -f "$binary"
+          strings "$binary" | grep -q 'Memory 真机语义评测'
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/MemoryEvaluationDerivedData/Build/Products/Debug-iphoneos/PersonalDeepSeek.app"
+          package="$RUNNER_TEMP/memory-evaluation-package"
+          mkdir -p "$package/Payload"
+          ditto "$app" "$package/Payload/PersonalDeepSeek.app"
+          cd "$package"
+          zip -qry "$GITHUB_WORKSPACE/PersonalDeepSeek-Step35-Debug-unsigned.ipa" Payload
+          cd "$GITHUB_WORKSPACE"
+          shasum -a 256 PersonalDeepSeek-Step35-Debug-unsigned.ipa \
+            > PersonalDeepSeek-Step35-Debug-unsigned.ipa.sha256
+          cp "$RUNNER_TEMP/memory-evaluation-device-build.log" .
+
+      - name: Upload Debug evaluation IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PersonalDeepSeek-Step35-Debug-${{ github.run_id }}
+          path: |
+            PersonalDeepSeek-Step35-Debug-unsigned.ipa
+            PersonalDeepSeek-Step35-Debug-unsigned.ipa.sha256
+            memory-evaluation-device-build.log
+          if-no-files-found: error
+          retention-days: 14
