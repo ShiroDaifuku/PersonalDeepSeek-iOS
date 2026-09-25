@@ -242,6 +242,16 @@ actor MemoryStore {
         return try fetch(descriptor).map(turnRecordSnapshot)
     }
 
+    @discardableResult
+    func deleteTurnRecord(processingKey: String) throws -> Bool {
+        let key = processingKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw MemoryError.invalidSource }
+        guard let record = try turnRecordModel(processingKey: key) else { return false }
+        modelContext.delete(record)
+        try save()
+        return true
+    }
+
     func recordFailedTurn(
         _ turn: CompletedTurnSnapshot,
         extractorVersion: Int,

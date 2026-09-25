@@ -327,6 +327,10 @@ final class MemoryStep2Tests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<ChatMessage>()), 2)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<MemoryItem>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<MemorySource>()), 1)
+        let deletedRecord = try await store.deleteTurnRecord(processingKey: turn.processingKey)
+        let recordsAfterDelete = try await store.listTurnRecords(scopeID: MemoryScope.localDefault)
+        XCTAssertTrue(deletedRecord)
+        XCTAssertTrue(recordsAfterDelete.isEmpty)
     }
 
     private func response(_ operation: MemoryExtractionOperation) -> MemoryExtractionResponse {
