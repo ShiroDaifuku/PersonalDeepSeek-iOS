@@ -82,6 +82,7 @@ final class MemoryRetrievalEvaluationTests: XCTestCase {
         )
         try write(report)
 
+        XCTAssertEqual(MemoryRetrievalConfiguration().lexicalGate, best.configuration.lexicalGate, accuracy: 0.000_001)
         XCTAssertEqual(best.metrics.expiredLeakage, 0)
         XCTAssertEqual(best.metrics.supersededLeakage, 0)
         XCTAssertEqual(best.metrics.invalidatedLeakage, 0)
