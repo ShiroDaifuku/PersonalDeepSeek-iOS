@@ -117,6 +117,7 @@ jobs:
                   if "TestBundlePath" in value:
                       environment = value.setdefault("EnvironmentVariables", {})
                       environment["RUN_MEMORY_PROVIDER_EVALUATION"] = "1"
+                      environment["RUN_MEMORY_RETRIEVAL_EVALUATION"] = "1"
                       # CI simulators may never complete the optional asset request.
                       # Measure the installed state and exercise the immediate fallback.
                       environment["REQUEST_CONTEXTUAL_ASSETS"] = "0"
@@ -139,6 +140,18 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/memory-provider-evaluation.log"
 
+      - name: Run memory retrieval evaluation
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xctestrun="$(find "$RUNNER_TEMP/MemoryValidationDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
+          xcodebuild \
+            -xctestrun "$xctestrun" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/MemoryRetrievalEvaluationTests/testProductionRetrievalBenchmark \
+            test-without-building \
+            | tee "$RUNNER_TEMP/memory-retrieval-evaluation.log"
+
       - name: Collect provider evaluation report
         if: always()
         run: |
@@ -146,9 +159,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/memory-provider-evaluation"
           simulator_root="$HOME/Library/Developer/CoreSimulator/Devices/$SIMULATOR_ID/data/Containers/Data/Application"
           find "$simulator_root" -type f \
-            \( -name 'memory-provider-evaluation.json' -o -name 'memory-provider-evaluation.md' \) \
+            \( -name 'memory-provider-evaluation.json' -o -name 'memory-provider-evaluation.md' \
+               -o -name 'memory-retrieval-evaluation.json' -o -name 'memory-retrieval-evaluation.md' \) \
             -exec cp {} "$RUNNER_TEMP/memory-provider-evaluation/" \; 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-provider-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-retrieval-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
 
       - name: Upload provider evaluation report
         if: always()
