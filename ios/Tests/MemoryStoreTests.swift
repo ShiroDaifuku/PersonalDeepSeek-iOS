@@ -360,7 +360,7 @@ final class MemoryStoreTests: XCTestCase {
     }
 
     private func makeMemoryContainer() throws -> ModelContainer {
-        let schema = Schema([UserMemoryProfile.self, MemoryItem.self, MemorySource.self])
+        let schema = Schema([UserMemoryProfile.self, MemoryItem.self, MemorySource.self, MemoryTurnRecord.self])
         let configuration = ModelConfiguration(
             "MemoryTests",
             schema: schema,
@@ -379,7 +379,8 @@ final class MemoryStoreTests: XCTestCase {
             LocalKnowledgeChunk.self,
             UserMemoryProfile.self,
             MemoryItem.self,
-            MemorySource.self
+            MemorySource.self,
+            MemoryTurnRecord.self
         ])
     }
 

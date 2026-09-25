@@ -9,9 +9,16 @@ protocol MemoryServing: Sendable {
 
 final class MemoryService: MemoryServing, Sendable {
     private let store: MemoryStore
+    private let processor: MemoryProcessor
 
-    init(modelContainer: ModelContainer) {
-        store = MemoryStore(modelContainer: modelContainer)
+    init(store: MemoryStore, processor: MemoryProcessor) {
+        self.store = store
+        self.processor = processor
+    }
+
+    convenience init(modelContainer: ModelContainer, extractor: any MemoryExtracting = MemoryExtractionClient()) {
+        let store = MemoryStore(modelContainer: modelContainer)
+        self.init(store: store, processor: MemoryProcessor(store: store, extractor: extractor))
     }
 
     func getUserProfile(scopeID: String = MemoryScope.localDefault) async throws -> UserMemoryProfileSnapshot {
@@ -24,5 +31,9 @@ final class MemoryService: MemoryServing, Sendable {
 
     func memory(id: UUID, scopeID: String = MemoryScope.localDefault) async throws -> MemoryItemSnapshot? {
         try await store.memory(id: id, scopeID: scopeID)
+    }
+
+    func processCompletedTurn(_ turn: CompletedTurnSnapshot) async -> MemoryProcessingResult {
+        await processor.processCompletedTurn(turn)
     }
 }

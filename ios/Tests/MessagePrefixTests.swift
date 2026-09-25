@@ -35,4 +35,16 @@ final class MessagePrefixTests: XCTestCase {
         XCTAssertTrue(messages[2].content.contains("local text"))
         XCTAssertEqual(messages[3], APIMessage(role: "user", content: "question"))
     }
+
+    func testToolContextSaysItWasExecutedForCurrentRequest() {
+        let messages = MessagePrefix.stable(system: "system", history: [], knowledgeContext: "Web research evidence", newUserText: "question")
+        XCTAssertTrue(messages[1].content.contains("successfully executed"))
+        XCTAssertTrue(messages[1].content.contains("Do not say that you cannot access"))
+    }
+
+    func testStreamingPreviewIsBoundedToRecentText() {
+        XCTAssertEqual(StreamingTextBuffer.visibleTail("abcdef", limit: 4), "…cdef")
+        XCTAssertEqual(StreamingTextBuffer.visibleTail("abc", limit: 4), "abc")
+        XCTAssertEqual(StreamingTextBuffer.visibleTail("abc", limit: 0), "")
+    }
 }

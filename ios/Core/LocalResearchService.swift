@@ -106,10 +106,21 @@ final class LocalResearchService: Sendable {
     }
 
     static func evidencePrompt(question: String, sources: [ResearchSource]) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = .current
+        let fetchedAt = formatter.string(from: Date())
+        let timezone = TimeZone.current.identifier
         let evidence = sources.enumerated().map { index, source in
             "[\(index + 1)] \(source.title)\nURL: \(source.url.absoluteString)\n\(source.snippet)\n\(source.pageText)"
         }.joined(separator: "\n\n")
-        return "研究问题：\(question)\n\n请综合以下来源，明确区分事实与推断，并在相关句末使用 [n] 引用。最后列出仍不确定的问题。\n\n\(evidence)"
+        return """
+        本轮联网工具已于 \(fetchedAt)（用户时区：\(timezone)）完成搜索和网页抓取。
+        研究问题：\(question)
+
+        请直接根据本轮搜索结果回答。明确区分事实与推断，在相关句末使用 [n] 引用，并在末尾列出来源标题及 URL。不要声称无法联网、没有搜索工具、需要用户另行提供网页，也不要把来源误称为用户提供。若来源不足，只说明具体缺少什么。
+
+        \(evidence)
+        """
     }
 
     static func isAllowed(_ url: URL) -> Bool {

@@ -21,6 +21,14 @@ enum MemoryStatus: String, Codable, Sendable, CaseIterable {
     case invalidated
 }
 
+enum MemoryTurnStatus: String, Codable, Sendable, CaseIterable {
+    case succeeded
+    case noop
+    case failed
+
+    var isProcessed: Bool { self == .succeeded || self == .noop }
+}
+
 enum MemoryScore {
     static let defaultImportance = 0.5
     static let defaultConfidence = 0.5
@@ -165,6 +173,52 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
     }
 }
 
+@Model final class MemoryTurnRecord {
+    @Attribute(.unique) var id: UUID
+    var scopeID: String
+    @Attribute(.unique) var processingKey: String
+    var turnFingerprint: String
+    var sourceConversationID: UUID
+    var userMessageID: UUID
+    var assistantMessageID: UUID
+    var statusRawValue: String
+    var extractorVersion: Int
+    var modelName: String?
+    var createdAt: Date
+    var updatedAt: Date
+    var errorCode: String?
+
+    init(
+        id: UUID = UUID(),
+        scopeID: String,
+        processingKey: String,
+        turnFingerprint: String,
+        sourceConversationID: UUID,
+        userMessageID: UUID,
+        assistantMessageID: UUID,
+        statusRawValue: String,
+        extractorVersion: Int,
+        modelName: String? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        errorCode: String? = nil
+    ) {
+        self.id = id
+        self.scopeID = scopeID
+        self.processingKey = processingKey
+        self.turnFingerprint = turnFingerprint
+        self.sourceConversationID = sourceConversationID
+        self.userMessageID = userMessageID
+        self.assistantMessageID = assistantMessageID
+        self.statusRawValue = statusRawValue
+        self.extractorVersion = extractorVersion
+        self.modelName = modelName
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.errorCode = errorCode
+    }
+}
+
 struct UserMemoryProfileSnapshot: Codable, Sendable, Equatable, Identifiable {
     let id: UUID
     let scopeID: String
@@ -202,6 +256,87 @@ struct MemorySourceSnapshot: Codable, Sendable, Equatable, Identifiable {
     let assistantMessageID: UUID?
     let turnFingerprint: String
     let createdAt: Date
+}
+
+struct MemoryTurnRecordSnapshot: Codable, Sendable, Equatable, Identifiable {
+    let id: UUID
+    let scopeID: String
+    let processingKey: String
+    let turnFingerprint: String
+    let sourceConversationID: UUID
+    let userMessageID: UUID
+    let assistantMessageID: UUID
+    let statusRawValue: String
+    let extractorVersion: Int
+    let modelName: String?
+    let createdAt: Date
+    let updatedAt: Date
+    let errorCode: String?
+
+    var status: MemoryTurnStatus? { MemoryTurnStatus(rawValue: statusRawValue) }
+}
+
+struct CompletedTurnSnapshot: Codable, Sendable, Equatable {
+    let scopeID: String
+    let conversationID: UUID
+    let userMessageID: UUID
+    let userText: String
+    let assistantMessageID: UUID
+    let assistantText: String
+    let completedAt: Date
+    let turnFingerprint: String
+
+    init(
+        scopeID: String = MemoryScope.localDefault,
+        conversationID: UUID,
+        userMessageID: UUID,
+        userText: String,
+        assistantMessageID: UUID,
+        assistantText: String,
+        completedAt: Date = Date()
+    ) {
+        self.scopeID = scopeID
+        self.conversationID = conversationID
+        self.userMessageID = userMessageID
+        self.userText = userText
+        self.assistantMessageID = assistantMessageID
+        self.assistantText = assistantText
+        self.completedAt = completedAt
+        turnFingerprint = CompletedTurnFingerprint.make(
+            conversationID: conversationID,
+            userMessageID: userMessageID,
+            assistantMessageID: assistantMessageID
+        )
+    }
+
+    var processingKey: String { "\(scopeID)|\(turnFingerprint)" }
+}
+
+enum CompletedTurnEligibility {
+    static func snapshot(
+        successfulCompletion: Bool,
+        persistenceSucceeded: Bool,
+        scopeID: String = MemoryScope.localDefault,
+        conversationID: UUID,
+        userMessageID: UUID,
+        userText: String,
+        assistantMessageID: UUID,
+        assistantText: String,
+        completedAt: Date = Date()
+    ) -> CompletedTurnSnapshot? {
+        let user = userText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let assistant = assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard successfulCompletion, persistenceSucceeded, !user.isEmpty, !assistant.isEmpty else { return nil }
+        return CompletedTurnSnapshot(
+            scopeID: scopeID,
+            conversationID: conversationID,
+            userMessageID: userMessageID,
+            userText: user,
+            assistantMessageID: assistantMessageID,
+            assistantText: assistant,
+            completedAt: completedAt
+        )
+    }
 }
 
 struct MemoryItemDraft: Sendable, Equatable {

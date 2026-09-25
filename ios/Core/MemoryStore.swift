@@ -29,8 +29,20 @@ enum MemoryError: LocalizedError, Sendable, Equatable {
     }
 }
 
+enum MemoryBatchApplyResult: Sendable, Equatable {
+    case applied(record: MemoryTurnRecordSnapshot, mutationCount: Int)
+    case alreadyProcessed(record: MemoryTurnRecordSnapshot)
+}
+
 @ModelActor
 actor MemoryStore {
+#if DEBUG
+    private var failNextBatchSave = false
+
+    func injectNextBatchSaveFailureForTesting() {
+        failNextBatchSave = true
+    }
+#endif
     func getOrCreateProfile(scopeID: String) throws -> UserMemoryProfileSnapshot {
         let scope = try validatedScope(scopeID)
         if let existing = try profileModel(scopeID: scope) { return try profileSnapshot(existing) }
@@ -214,6 +226,162 @@ actor MemoryStore {
         return try !fetch(descriptor).isEmpty
     }
 
+    func turnRecord(processingKey: String) throws -> MemoryTurnRecordSnapshot? {
+        let key = processingKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw MemoryError.invalidSource }
+        return try turnRecordModel(processingKey: key).map(turnRecordSnapshot)
+    }
+
+    func listTurnRecords(scopeID: String) throws -> [MemoryTurnRecordSnapshot] {
+        let scope = try validatedScope(scopeID)
+        let requestedScope = scope
+        let descriptor = FetchDescriptor<MemoryTurnRecord>(
+            predicate: #Predicate { $0.scopeID == requestedScope },
+            sortBy: [SortDescriptor(\MemoryTurnRecord.updatedAt, order: .reverse)]
+        )
+        return try fetch(descriptor).map(turnRecordSnapshot)
+    }
+
+    func recordFailedTurn(
+        _ turn: CompletedTurnSnapshot,
+        extractorVersion: Int,
+        modelName: String?,
+        errorCode: String,
+        now: Date = Date()
+    ) throws -> MemoryTurnRecordSnapshot {
+        let scope = try validatedScope(turn.scopeID)
+        guard !turn.turnFingerprint.isEmpty, !errorCode.isEmpty else { throw MemoryError.invalidSource }
+        let record: MemoryTurnRecord
+        if let existing = try turnRecordModel(processingKey: turn.processingKey) {
+            if MemoryTurnStatus(rawValue: existing.statusRawValue)?.isProcessed == true {
+                return turnRecordSnapshot(existing)
+            }
+            record = existing
+            record.statusRawValue = MemoryTurnStatus.failed.rawValue
+            record.extractorVersion = extractorVersion
+            record.modelName = modelName
+            record.updatedAt = now
+            record.errorCode = errorCode
+        } else {
+            record = MemoryTurnRecord(
+                scopeID: scope,
+                processingKey: turn.processingKey,
+                turnFingerprint: turn.turnFingerprint,
+                sourceConversationID: turn.conversationID,
+                userMessageID: turn.userMessageID,
+                assistantMessageID: turn.assistantMessageID,
+                statusRawValue: MemoryTurnStatus.failed.rawValue,
+                extractorVersion: extractorVersion,
+                modelName: modelName,
+                createdAt: now,
+                updatedAt: now,
+                errorCode: errorCode
+            )
+            modelContext.insert(record)
+        }
+        try save()
+        return turnRecordSnapshot(record)
+    }
+
+    func applyMemoryOperations(
+        _ operations: [ValidatedMemoryOperation],
+        for turn: CompletedTurnSnapshot,
+        extractorVersion: Int,
+        modelName: String?,
+        now: Date = Date()
+    ) throws -> MemoryBatchApplyResult {
+        let scope = try validatedScope(turn.scopeID)
+        if let existing = try turnRecordModel(processingKey: turn.processingKey),
+           MemoryTurnStatus(rawValue: existing.statusRawValue)?.isProcessed == true {
+            return .alreadyProcessed(record: turnRecordSnapshot(existing))
+        }
+
+        var mutationCount = 0
+        for operation in operations {
+            switch operation {
+            case .add(let kind, let canonicalText, let importance, let confidence):
+                let item = makeMemoryItem(
+                    scopeID: scope,
+                    kind: kind,
+                    canonicalText: canonicalText,
+                    importance: importance,
+                    confidence: confidence,
+                    now: now
+                )
+                modelContext.insert(item)
+                attachSource(to: item, turn: turn, scopeID: scope, now: now)
+                mutationCount += 1
+
+            case .reinforce(let existingMemoryID, let importance, let confidence):
+                guard let item = try memoryModel(id: existingMemoryID, scopeID: scope),
+                      item.statusRawValue == MemoryStatus.active.rawValue
+                else { modelContext.rollback(); throw MemoryError.invalidMemoryItem }
+                item.importance = max(item.importance, importance)
+                item.confidence = max(item.confidence, confidence)
+                item.reinforcementCount += 1
+                item.lastReinforcedAt = now
+                item.updatedAt = now
+                item.expiresAt = expiration(for: MemoryKind(rawValue: item.kindRawValue) ?? .other, now: now)
+                attachSource(to: item, turn: turn, scopeID: scope, now: now)
+                mutationCount += 1
+
+            case .supersede(let existingMemoryID, let kind, let canonicalText, let importance, let confidence):
+                guard let oldItem = try memoryModel(id: existingMemoryID, scopeID: scope),
+                      oldItem.statusRawValue == MemoryStatus.active.rawValue
+                else { modelContext.rollback(); throw MemoryError.invalidMemoryItem }
+                oldItem.statusRawValue = MemoryStatus.superseded.rawValue
+                oldItem.updatedAt = now
+                let newItem = makeMemoryItem(
+                    scopeID: scope,
+                    kind: kind,
+                    canonicalText: canonicalText,
+                    importance: importance,
+                    confidence: confidence,
+                    now: now
+                )
+                modelContext.insert(newItem)
+                attachSource(to: newItem, turn: turn, scopeID: scope, now: now)
+                mutationCount += 1
+            }
+        }
+
+        let status: MemoryTurnStatus = mutationCount == 0 ? .noop : .succeeded
+        let record: MemoryTurnRecord
+        if let existing = try turnRecordModel(processingKey: turn.processingKey) {
+            record = existing
+            record.statusRawValue = status.rawValue
+            record.extractorVersion = extractorVersion
+            record.modelName = modelName
+            record.updatedAt = now
+            record.errorCode = nil
+        } else {
+            record = MemoryTurnRecord(
+                scopeID: scope,
+                processingKey: turn.processingKey,
+                turnFingerprint: turn.turnFingerprint,
+                sourceConversationID: turn.conversationID,
+                userMessageID: turn.userMessageID,
+                assistantMessageID: turn.assistantMessageID,
+                statusRawValue: status.rawValue,
+                extractorVersion: extractorVersion,
+                modelName: modelName,
+                createdAt: now,
+                updatedAt: now
+            )
+            modelContext.insert(record)
+        }
+
+#if DEBUG
+        if failNextBatchSave {
+            failNextBatchSave = false
+            modelContext.rollback()
+            throw MemoryError.persistenceFailure("injected_batch_save_failure")
+        }
+#endif
+        try save()
+        return .applied(record: turnRecordSnapshot(record), mutationCount: mutationCount)
+    }
+
     private func validatedScope(_ scopeID: String) throws -> String {
         let value = scopeID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.count <= 128 else { throw MemoryError.invalidScope }
@@ -247,6 +415,58 @@ actor MemoryStore {
         })
         descriptor.fetchLimit = 1
         return try fetch(descriptor).first
+    }
+
+    private func turnRecordModel(processingKey: String) throws -> MemoryTurnRecord? {
+        let requestedKey = processingKey
+        var descriptor = FetchDescriptor<MemoryTurnRecord>(predicate: #Predicate { $0.processingKey == requestedKey })
+        descriptor.fetchLimit = 2
+        let records = try fetch(descriptor)
+        guard records.count <= 1 else { throw MemoryError.corruptData("duplicate memory turn processing key") }
+        return records.first
+    }
+
+    private func makeMemoryItem(
+        scopeID: String,
+        kind: MemoryKind,
+        canonicalText: String,
+        importance: Double,
+        confidence: Double,
+        now: Date
+    ) -> MemoryItem {
+        MemoryItem(
+            scopeID: scopeID,
+            kindRawValue: kind.rawValue,
+            canonicalText: canonicalText,
+            embeddingData: nil,
+            importance: importance,
+            confidence: confidence,
+            statusRawValue: MemoryStatus.active.rawValue,
+            createdAt: now,
+            updatedAt: now,
+            expiresAt: expiration(for: kind, now: now)
+        )
+    }
+
+    private func attachSource(to item: MemoryItem, turn: CompletedTurnSnapshot, scopeID: String, now: Date) {
+        let source = MemorySource(
+            scopeID: scopeID,
+            sourceConversationID: turn.conversationID,
+            userMessageID: turn.userMessageID,
+            assistantMessageID: turn.assistantMessageID,
+            turnFingerprint: turn.turnFingerprint,
+            createdAt: now
+        )
+        item.sources.append(source)
+        modelContext.insert(source)
+    }
+
+    private func expiration(for kind: MemoryKind, now: Date) -> Date? {
+        switch kind {
+        case .ongoingContext: now.addingTimeInterval(90 * 24 * 60 * 60)
+        case .recentState: now.addingTimeInterval(14 * 24 * 60 * 60)
+        default: nil
+        }
     }
 
     private func profileSnapshot(_ profile: UserMemoryProfile) throws -> UserMemoryProfileSnapshot {
@@ -292,6 +512,24 @@ actor MemoryStore {
             assistantMessageID: source.assistantMessageID,
             turnFingerprint: source.turnFingerprint,
             createdAt: source.createdAt
+        )
+    }
+
+    private func turnRecordSnapshot(_ record: MemoryTurnRecord) -> MemoryTurnRecordSnapshot {
+        .init(
+            id: record.id,
+            scopeID: record.scopeID,
+            processingKey: record.processingKey,
+            turnFingerprint: record.turnFingerprint,
+            sourceConversationID: record.sourceConversationID,
+            userMessageID: record.userMessageID,
+            assistantMessageID: record.assistantMessageID,
+            statusRawValue: record.statusRawValue,
+            extractorVersion: record.extractorVersion,
+            modelName: record.modelName,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            errorCode: record.errorCode
         )
     }
 

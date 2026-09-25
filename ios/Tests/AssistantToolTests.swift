@@ -15,6 +15,18 @@ final class AssistantToolTests: XCTestCase {
         XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "创建知识库叫工作资料"), "manage_local_knowledge")
     }
 
+    func testExplicitResearchDispatchDoesNotDependOnModelPlanning() {
+        XCTAssertEqual(
+            AssistantIntentRouter.directCall(for: "start_deep_search", query: "联网搜索 OurNotes 开服了吗"),
+            .deepResearch(query: "OurNotes 开服了吗")
+        )
+        XCTAssertEqual(
+            AssistantIntentRouter.directCall(for: "search_local_knowledge", query: "找我的笔记"),
+            .searchKnowledge(query: "找我的笔记", limit: 6)
+        )
+        XCTAssertNil(AssistantIntentRouter.directCall(for: "create_scheduled_task", query: "明天提醒我"))
+    }
+
     func testDecodesKnowledgeToolAndClampsLimit() throws {
         let call = try AssistantToolPlanner.decode(name: "search_local_knowledge", arguments: #"{"query":"合同期限","limit":99}"#)
         XCTAssertEqual(call, .searchKnowledge(query: "合同期限", limit: 10))

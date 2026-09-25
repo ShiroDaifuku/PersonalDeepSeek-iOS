@@ -45,6 +45,27 @@ enum AssistantIntentRouter {
         if knowledgeWords.contains(where: value.contains) { return "search_local_knowledge" }
         return nil
     }
+
+    /// Search and local retrieval do not need a second model round-trip once
+    /// the user or the deterministic router has selected the capability.
+    /// Keeping these calls model-independent prevents one model from claiming
+    /// it cannot browse while another model happens to emit valid tool JSON.
+    static func directCall(for preferredTool: String, query: String) -> AssistantToolCall? {
+        switch preferredTool {
+        case "start_deep_search": return .deepResearch(query: researchQuery(from: query))
+        case "search_local_knowledge": return .searchKnowledge(query: query, limit: 6)
+        default: return nil
+        }
+    }
+
+    private static func researchQuery(from text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for directive in ["请联网搜索", "联网搜索一下", "联网搜索", "搜索网页", "查一下最新", "查最新", "deep search", "deep research"] {
+            value = value.replacingOccurrences(of: directive, with: "", options: [.caseInsensitive])
+        }
+        value = value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        return value.isEmpty ? text : value
+    }
 }
 
 struct PendingTaskAction: Identifiable, Equatable {

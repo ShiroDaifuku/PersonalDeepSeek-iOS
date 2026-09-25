@@ -12,6 +12,7 @@ private enum ComposerToolMode: String, Identifiable {
 }
 
 struct ChatView: View {
+    let memoryService: MemoryService
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
@@ -39,6 +40,10 @@ struct ChatView: View {
     @State private var knowledgeImportTarget: LocalKnowledgeBase?
     @State private var showingKnowledgeImporter = false
     @State private var manualTool: ComposerToolMode?
+    @State private var streamingReasoningPreview = ""
+    @State private var streamingReasoningCount = 0
+    @State private var streamingContent = ""
+    @State private var scrollRequest = 0
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -46,21 +51,32 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if let conversation = current {
                 let orderedMessages = conversation.messages.sorted { $0.createdAt < $1.createdAt }
-                ScrollView {
-                    LazyVStack(spacing: 14) {
-                        ForEach(orderedMessages) { message in
-                            MessageBubble(
-                                message: message,
-                                isStreaming: isStreaming && orderedMessages.last?.id == message.id,
-                                animationActive: scenePhase == .active && !showingConversations,
-                                onStop: cancelGeneration
-                            )
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 14) {
+                            ForEach(orderedMessages) { message in
+                                let isActive = isStreaming && orderedMessages.last?.id == message.id
+                                MessageBubble(
+                                    message: message,
+                                    isStreaming: isActive,
+                                    streamingReasoning: isActive ? streamingReasoningPreview : nil,
+                                    streamingReasoningCount: isActive ? streamingReasoningCount : nil,
+                                    streamingContent: isActive ? streamingContent : nil,
+                                    animationActive: scenePhase == .active && !showingConversations,
+                                    onStop: cancelGeneration
+                                )
+                                .id(message.id)
+                            }
+                            Color.clear.frame(height: 1).id("chat-bottom")
                         }
-                    }.padding(.horizontal, 12).padding(.vertical, 16)
+                        .padding(.horizontal, 12).padding(.vertical, 16)
+                    }
+                    .defaultScrollAnchor(.bottom)
+                    .scrollDismissesKeyboard(.interactively)
+                    .background(Color(.systemGroupedBackground))
+                    .onChange(of: orderedMessages.count) { _, _ in scrollToBottom(proxy) }
+                    .onChange(of: scrollRequest) { _, _ in scrollToBottom(proxy) }
                 }
-                .defaultScrollAnchor(.bottom)
-                .scrollDismissesKeyboard(.interactively)
-                .background(Color(.systemGroupedBackground))
             } else { ContentUnavailableView("开始对话", systemImage: "sparkles", description: Text("对话、知识库和研究都在这台设备上编排。")) }
             if let toolStatus, isStreaming, !activeAssistantHasOutput {
                 ThinkingStatusCard(
@@ -138,8 +154,13 @@ struct ChatView: View {
 
     private var taskAPI: TaskAPI? { guard let url = URL(string: cloudServiceURL), !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
     private var activeAssistantHasOutput: Bool {
+        if !streamingReasoningPreview.isEmpty || !streamingContent.isEmpty { return true }
         guard let last = current?.messages.max(by: { $0.createdAt < $1.createdAt }), last.role == "assistant" else { return false }
         return !last.reasoning.isEmpty || !last.content.isEmpty
+    }
+
+    @MainActor private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
     }
 
     @MainActor private func selectManualTool(_ tool: ComposerToolMode) {
@@ -172,16 +193,24 @@ struct ChatView: View {
         let attachmentNames = attachments.map(\.name)
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation), assistant = ChatMessage(role: "assistant", conversation: conversation)
-        context.insert(user); context.insert(assistant); input = ""; attachments = []; photoSelection = []; manualTool = nil; isStreaming = true; errorText = nil
+        context.insert(user); context.insert(assistant)
+        try? context.save()
+        input = ""; attachments = []; photoSelection = []; manualTool = nil; isStreaming = true; errorText = nil
+        streamingReasoningPreview = ""; streamingReasoningCount = 0; streamingContent = ""; scrollRequest &+= 1
         toolStatus = selectedManualTool.map { "正在准备\($0.title)…" } ?? (preferredTool == nil ? "正在连接模型…" : "正在准备所需工具…")
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
         let planningMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
         streamTask = Task {
+            var fullReasoning = ""
+            var fullContent = ""
+            var completedSuccessfully = false
             do {
                 try Task.checkCancellation()
                 let tasks = preferredTool == "edit_scheduled_task" ? ((try? await taskAPI?.list()) ?? []) : []
                 let calls: [AssistantToolCall]
-                if let preferredTool {
+                if let preferredTool, let directCall = AssistantIntentRouter.directCall(for: preferredTool, query: requestText) {
+                    calls = [directCall]
+                } else if let preferredTool {
                     let knowledgeDescriptors = LocalKnowledgeCloudSync.descriptors(from: knowledgeBases)
                     do { calls = try await AssistantToolPlanner().plan(messages: planningMessages, model: conversation.model, tasks: tasks, knowledgeBases: knowledgeDescriptors, preferredTool: preferredTool) }
                     catch { throw NSError(domain: "AssistantTools", code: 1, userInfo: [NSLocalizedDescriptionKey: "工具规划失败：\(error.localizedDescription)"] ) }
@@ -230,25 +259,64 @@ struct ChatView: View {
                         case .usage: break
                         }
                         if forceRender || Date().timeIntervalSince(lastRender) >= 0.1 {
-                            assistant.reasoning += pendingReasoning; pendingReasoning = ""
-                            assistant.content += pendingContent; pendingContent = ""
+                            if !pendingReasoning.isEmpty {
+                                fullReasoning += pendingReasoning
+                                streamingReasoningCount += pendingReasoning.lazy.filter { !$0.isWhitespace }.count
+                                pendingReasoning = ""
+                                streamingReasoningPreview = StreamingTextBuffer.visibleTail(fullReasoning)
+                            }
+                            if !pendingContent.isEmpty {
+                                fullContent += pendingContent; pendingContent = ""
+                                streamingContent = fullContent
+                            }
                             lastRender = Date()
                         }
                     }
-                    assistant.reasoning += pendingReasoning
-                    assistant.content += pendingContent
+                    if !pendingReasoning.isEmpty {
+                        fullReasoning += pendingReasoning
+                        streamingReasoningCount += pendingReasoning.lazy.filter { !$0.isWhitespace }.count
+                        streamingReasoningPreview = StreamingTextBuffer.visibleTail(fullReasoning)
+                    }
+                    fullContent += pendingContent
+                    streamingContent = fullContent
+                    assistant.reasoning = fullReasoning
+                    assistant.content = fullContent
                 }
+                completedSuccessfully = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             } catch is CancellationError {
+                if !fullReasoning.isEmpty { assistant.reasoning = fullReasoning }
+                if !fullContent.isEmpty { assistant.content = fullContent }
                 if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
-            } catch { if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }; errorText = error.localizedDescription }
+            } catch {
+                if !fullReasoning.isEmpty { assistant.reasoning = fullReasoning }
+                if !fullContent.isEmpty { assistant.content = fullContent }
+                if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
+                errorText = error.localizedDescription
+            }
             await LiveActivityManager.shared.finish(detail: assistant.content.isEmpty ? "生成已停止" : "回答已完成", success: !assistant.content.isEmpty)
-            finishGeneration()
+            let persistenceSucceeded = finishGeneration()
+            if let turn = CompletedTurnEligibility.snapshot(
+                successfulCompletion: completedSuccessfully,
+                persistenceSucceeded: persistenceSucceeded,
+                conversationID: conversation.id,
+                userMessageID: user.id,
+                userText: displayText,
+                assistantMessageID: assistant.id,
+                assistantText: assistant.content
+            ) {
+                Task { _ = await memoryService.processCompletedTurn(turn) }
+            }
         }
     }
 
-    @MainActor private func finishGeneration() {
-        isStreaming = false; streamTask = nil; toolStatus = nil; try? context.save()
+    @MainActor private func finishGeneration() -> Bool {
+        isStreaming = false; streamTask = nil; toolStatus = nil
+        let persistenceSucceeded: Bool
+        do { try context.save(); persistenceSucceeded = true }
+        catch { persistenceSucceeded = false; errorText = error.localizedDescription }
+        streamingReasoningPreview = ""; streamingReasoningCount = 0; streamingContent = ""
         AppGroupSnapshotStore.updateConversations(conversations.map { value in let preview = value.messages.sorted { $0.createdAt < $1.createdAt }.last?.content ?? ""; return .init(id: value.id.uuidString, title: value.title, preview: String(preview.prefix(120))) })
+        return persistenceSucceeded
     }
 
     @MainActor private func cancelGeneration() {
@@ -346,9 +414,14 @@ struct ChatView: View {
 private struct MessageBubble: View {
     let message: ChatMessage
     let isStreaming: Bool
+    let streamingReasoning: String?
+    let streamingReasoningCount: Int?
+    let streamingContent: String?
     let animationActive: Bool
     let onStop: () -> Void
     private var isUser: Bool { message.role == "user" }
+    private var displayedReasoning: String { streamingReasoning ?? message.reasoning }
+    private var displayedContent: String { streamingContent ?? message.content }
     var body: some View {
         Group {
             if isUser {
@@ -363,20 +436,20 @@ private struct MessageBubble: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    if !message.reasoning.isEmpty {
-                        ReasoningStrip(reasoning: message.reasoning, isStreaming: isStreaming, animationActive: animationActive, onStop: onStop)
+                    if !displayedReasoning.isEmpty {
+                        ReasoningStrip(reasoning: displayedReasoning, characterCount: streamingReasoningCount, isStreaming: isStreaming, animationActive: animationActive, onStop: onStop)
                     }
-                    if !message.content.isEmpty {
+                    if !displayedContent.isEmpty {
                         if isStreaming {
-                            Text(message.content)
+                            Text(displayedContent)
                                 .font(.body)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
-                            RichMessageView(text: message.content).frame(maxWidth: .infinity, alignment: .leading)
+                            RichMessageView(text: displayedContent).frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    if !message.content.isEmpty { messageActions }
+                    if !displayedContent.isEmpty { messageActions }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 2)
             }
         }.frame(maxWidth: .infinity).accessibilityElement(children: .contain)
@@ -384,8 +457,8 @@ private struct MessageBubble: View {
 
     private var messageActions: some View {
         HStack(spacing: 14) {
-            Button { UIPasteboard.general.string = message.content } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("复制消息")
-            ShareLink(item: message.content) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享消息")
+            Button { UIPasteboard.general.string = displayedContent } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("复制消息")
+            ShareLink(item: displayedContent) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享消息")
         }.font(.caption).foregroundStyle(.secondary)
     }
 }
@@ -445,18 +518,20 @@ private struct ThinkingAvatar: View {
 
 private struct ReasoningStrip: View {
     let reasoning: String
+    let streamedCharacterCount: Int?
     let isStreaming: Bool
     let animationActive: Bool
     let onStop: () -> Void
     @State private var expanded: Bool
-    init(reasoning: String, isStreaming: Bool, animationActive: Bool, onStop: @escaping () -> Void) {
+    init(reasoning: String, characterCount: Int? = nil, isStreaming: Bool, animationActive: Bool, onStop: @escaping () -> Void) {
         self.reasoning = reasoning
+        self.streamedCharacterCount = characterCount
         self.isStreaming = isStreaming
         self.animationActive = animationActive
         self.onStop = onStop
         _expanded = State(initialValue: isStreaming)
     }
-    private var characterCount: Int { reasoning.filter { !$0.isWhitespace }.count }
+    private var characterCount: Int { streamedCharacterCount ?? reasoning.lazy.filter { !$0.isWhitespace }.count }
     var body: some View {
         Group {
             if isStreaming {
@@ -475,20 +550,12 @@ private struct ReasoningStrip: View {
                             .buttonStyle(.plain)
                             .accessibilityLabel("停止生成")
                         }
-                        ScrollViewReader { proxy in
-                            ScrollView(.vertical) {
-                                Text(reasoning)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .id("reasoning-bottom")
-                            }
-                            .frame(height: 66)
-                            .scrollIndicators(.hidden)
-                            .onChange(of: reasoning) { _, _ in proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
-                            .onAppear { proxy.scrollTo("reasoning-bottom", anchor: .bottom) }
-                        }
+                        Text(reasoning)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(4, reservesSpace: true)
+                            .truncationMode(.head)
+                            .frame(maxWidth: .infinity, minHeight: 66, alignment: .topLeading)
                     }
                 }
             } else {
