@@ -549,7 +549,7 @@ private struct MemoryEvaluationReport: Codable, Sendable {
             "## H. Prompt Changes", "",
             environment.promptVersion == 1
                 ? "Baseline production prompt v1; no benchmark-specific prompt was used."
-                : "Production prompt v1 → v2 → v3 → v4. v1 baseline: 74/102 passed, FPR 3.51%, 23 false negatives, 3 bad reinforces, 6 bad supersedes. v2: 96/102 passed, FPR 0%, precision 100%, with one genuine A7 NOOP, one valid ‘读完’ synonym initially scored too narrowly, and four transient timeouts. v3 initially scored 102/102, but manual post-run review found one A7 canonical text with dialogue residue (‘此前讨论的那本’), so it was not accepted as final. v4 prohibits deictic dialogue residue and requires a generic self-contained noun when the entity has no supported name. JSON schema remains v1. Current results are shown above.",
+                : "Production prompt v1 → v2 → v3 → v4 → v5. v1 baseline: 74/102 passed, FPR 3.51%, 23 false negatives, 3 bad reinforces, 6 bad supersedes. v2: 96/102 passed, FPR 0%, precision 100%, with one genuine A7 NOOP, one valid ‘读完’ synonym initially scored too narrowly, and four transient timeouts. v3 initially scored 102/102, but manual post-run review found one A7 canonical text with dialogue residue (‘此前讨论的那本’), so it was not accepted as final. v4 removed dialogue residue but labeled the completed-reading event as recentState in 2/3 runs. v5 clarifies that recentState must still be active and an explicitly completed reading/watching action is event, never recentState. JSON schema remains v1. Current results are shown above.",
             "",
             "## I. Recommendation", "",
             "**\(summary.recommendation)**", ""

@@ -11,7 +11,7 @@ enum MemoryExtractionConfiguration {
 }
 
 enum MemoryExtractorPrompt {
-    static let version = 4
+    static let version = 5
     static let text = """
     You extract durable personal context that may improve future assistance. You are not summarizing the conversation.
 
@@ -38,8 +38,8 @@ enum MemoryExtractorPrompt {
     - durableFact: relatively stable identity, education, owned/used device, or stable circumstance.
     - preference: an explicit positive or negative preference. Preserve negation exactly.
     - ongoingContext: an ongoing project, goal, or commitment likely to matter across future conversations.
-    - recentState: a temporary current state, especially “最近/这几天” study or focus. Do not label a short recent phase as ongoingContext.
-    - event: a completed meaningful milestone. An explicitly completed activity that changes how future assistance should behave is useful and must not be ignored; for example, finishing media can change whether spoilers are acceptable. When an existing ongoing project is explicitly completed, SUPERSEDE it with a completion state rather than leaving it active.
+    - recentState: a temporary state that is still active, especially “最近/这几天” study or focus. Do not use recentState for an action the user explicitly says is already completed, and do not label a short recent phase as ongoingContext.
+    - event: a completed meaningful action or milestone. Explicitly finishing reading or watching media is an event, never recentState, especially when it changes whether spoilers are acceptable. An explicitly completed activity that changes how future assistance should behave is useful and must not be ignored. When an existing ongoing project is explicitly completed, SUPERSEDE it with a completion state rather than leaving it active.
 
     Allowed actions: add, reinforce, supersede, ignore.
 
