@@ -134,21 +134,25 @@ actor MemoryExtractionClient: MemoryExtracting {
     private let endpoint: URL
     private let timeout: TimeInterval
     private let maxTokens: Int
+    private let apiKeyOverride: String?
 
     init(
         modelName: String = MemoryExtractionConfiguration.modelName,
         endpoint: URL = MemoryExtractionConfiguration.endpoint,
         timeout: TimeInterval = MemoryExtractionConfiguration.timeout,
-        maxTokens: Int = MemoryExtractionConfiguration.maxTokens
+        maxTokens: Int = MemoryExtractionConfiguration.maxTokens,
+        apiKeyOverride: String? = nil
     ) {
         self.modelName = modelName
         self.endpoint = endpoint
         self.timeout = timeout
         self.maxTokens = maxTokens
+        self.apiKeyOverride = apiKeyOverride
     }
 
     func extract(turn: CompletedTurnSnapshot, candidates: [ExistingMemoryCandidate]) async throws -> MemoryExtractionOutput {
-        guard let key = KeychainStore.readAPIKey(), !key.isEmpty else { throw MemoryProcessingError.missingKey }
+        let key = apiKeyOverride ?? KeychainStore.readAPIKey()
+        guard let key, !key.isEmpty else { throw MemoryProcessingError.missingKey }
         let input = try Self.inputMessage(turn: turn, candidates: candidates)
         let body: [String: Any] = [
             "model": modelName,
@@ -339,6 +343,8 @@ enum MemoryLexicalScorer {
 }
 
 enum MemoryOperationValidator {
+    static let version = 1
+
     static func validate(
         response: MemoryExtractionResponse,
         turn: CompletedTurnSnapshot,
@@ -408,6 +414,8 @@ enum MemoryOperationValidator {
 }
 
 enum MemoryEvidenceFilter {
+    static let version = 1
+
     static func allows(userText: String, canonicalText: String) -> Bool {
         let combined = (userText + "\n" + canonicalText).lowercased()
         let secrets = ["api key", "apikey", "sk-", "密码", "password", "验证码", "verification code", "auth token", "access token", "bearer ", "银行卡", "银行卡号", "银行账户", "账户密码", "住址是", "地址是", "家庭住址"]
