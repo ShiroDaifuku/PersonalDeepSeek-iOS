@@ -43,6 +43,7 @@ jobs:
           mkdir -p Tests/Resources "$RUNNER_TEMP/step3-fixture-generator"
           xcrun swiftc \
             -parse-as-library \
+            -module-name PersonalDeepSeek \
             Validation/GeneratePreStep3MemoryStore.swift \
             -o "$RUNNER_TEMP/step3-fixture-generator/generate"
           "$RUNNER_TEMP/step3-fixture-generator/generate" "$PWD/Tests/Resources/pre-step3.store"
