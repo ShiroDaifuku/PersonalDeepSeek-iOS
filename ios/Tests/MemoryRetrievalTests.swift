@@ -17,9 +17,12 @@ final class MemoryRetrievalTests: XCTestCase {
         ))
         let retriever = MemoryRetriever(store: store, semanticResolver: nil)
 
-        XCTAssertTrue(try await retriever.search(.init(primaryText: "法国首都是什么？"), now: now).isEmpty)
-        XCTAssertTrue(try await retriever.search(.init(primaryText: "北京天气怎么样？"), now: now).isEmpty)
-        XCTAssertTrue(try await retriever.search(.init(primaryText: "二次方程怎么算？"), now: now).isEmpty)
+        let france = try await retriever.search(.init(primaryText: "法国首都是什么？"), now: now)
+        let weather = try await retriever.search(.init(primaryText: "北京天气怎么样？"), now: now)
+        let equation = try await retriever.search(.init(primaryText: "二次方程怎么算？"), now: now)
+        XCTAssertTrue(france.isEmpty)
+        XCTAssertTrue(weather.isEmpty)
+        XCTAssertTrue(equation.isEmpty)
         let dark = try await retriever.search(.init(primaryText: "我偏好什么界面模式？"), now: now)
         XCTAssertEqual(dark.map(\.canonicalText), ["用户喜欢深色模式"])
     }
@@ -56,14 +59,10 @@ final class MemoryRetrievalTests: XCTestCase {
             now: now.addingTimeInterval(-365 * 86_400)
         )
         let retriever = MemoryRetriever(store: store, semanticResolver: nil)
-        XCTAssertEqual(
-            try await retriever.search(.init(primaryText: "我的界面主题偏好是深色模式吗？"), now: now).first?.memoryID,
-            preference.id
-        )
-        XCTAssertEqual(
-            try await retriever.search(.init(primaryText: "我的宠物猫是什么？"), now: now).first?.memoryID,
-            durable.id
-        )
+        let preferenceResult = try await retriever.search(.init(primaryText: "我的界面主题偏好是深色模式吗？"), now: now)
+        let durableResult = try await retriever.search(.init(primaryText: "我的宠物猫是什么？"), now: now)
+        XCTAssertEqual(preferenceResult.first?.memoryID, preference.id)
+        XCTAssertEqual(durableResult.first?.memoryID, durable.id)
     }
 
     func testContextTextResolvesFollowUpAndConversationExclusionUsesAllSources() async throws {
@@ -116,11 +115,16 @@ final class MemoryRetrievalTests: XCTestCase {
         let second = await service.backfill(now: now)
         XCTAssertEqual(second.written, 0)
         XCTAssertEqual(second.skippedCurrent, 3)
-        XCTAssertNotNil(try await store.memory(id: missing.id, scopeID: MemoryScope.localDefault)?.embeddingData)
-        XCTAssertNotNil(try await store.memory(id: stale.id, scopeID: MemoryScope.localDefault)?.embeddingData)
-        XCTAssertEqual(try await store.memory(id: current.id, scopeID: MemoryScope.localDefault)?.lastConfirmedAt, now)
-        XCTAssertNil(try await store.memory(id: expired.id, scopeID: MemoryScope.localDefault)?.embeddingData)
-        XCTAssertNil(try await store.memory(id: invalidated.id, scopeID: MemoryScope.localDefault)?.embeddingData)
+        let savedMissing = try await store.memory(id: missing.id, scopeID: MemoryScope.localDefault)
+        let savedStale = try await store.memory(id: stale.id, scopeID: MemoryScope.localDefault)
+        let savedCurrent = try await store.memory(id: current.id, scopeID: MemoryScope.localDefault)
+        let savedExpired = try await store.memory(id: expired.id, scopeID: MemoryScope.localDefault)
+        let savedInvalidated = try await store.memory(id: invalidated.id, scopeID: MemoryScope.localDefault)
+        XCTAssertNotNil(savedMissing?.embeddingData)
+        XCTAssertNotNil(savedStale?.embeddingData)
+        XCTAssertEqual(savedCurrent?.lastConfirmedAt, now)
+        XCTAssertNil(savedExpired?.embeddingData)
+        XCTAssertNil(savedInvalidated?.embeddingData)
     }
 
     func testCompletedTurnTimeBecomesLastConfirmedEvidenceTime() async throws {
@@ -133,7 +137,8 @@ final class MemoryRetrievalTests: XCTestCase {
         _ = try await store.applyMemoryOperations([
             .add(kind: .preference, canonicalText: "用户喜欢表格。", importance: 0.7, confidence: 0.9)
         ], for: turn, extractorVersion: 1, modelName: "test", now: completed.addingTimeInterval(3_600))
-        let added = try XCTUnwrap(try await store.listMemories(scopeID: MemoryScope.localDefault).first)
+        let addedValues = try await store.listMemories(scopeID: MemoryScope.localDefault)
+        let added = try XCTUnwrap(addedValues.first)
         XCTAssertEqual(added.lastConfirmedAt, completed)
 
         let reinforcedAt = completed.addingTimeInterval(86_400)
@@ -144,10 +149,8 @@ final class MemoryRetrievalTests: XCTestCase {
         _ = try await store.applyMemoryOperations([
             .reinforce(existingMemoryID: added.id, importance: 0.8, confidence: 0.95)
         ], for: reinforcement, extractorVersion: 1, modelName: "test", now: reinforcedAt.addingTimeInterval(7_200))
-        XCTAssertEqual(
-            try await store.memory(id: added.id, scopeID: MemoryScope.localDefault)?.lastConfirmedAt,
-            reinforcedAt
-        )
+        let reinforced = try await store.memory(id: added.id, scopeID: MemoryScope.localDefault)
+        XCTAssertEqual(reinforced?.lastConfirmedAt, reinforcedAt)
     }
 
     private func insert(
