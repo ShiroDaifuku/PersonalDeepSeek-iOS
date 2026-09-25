@@ -466,8 +466,10 @@ actor MemorySemanticPhysicalDeviceEvaluator {
     private static func machineIdentifier() -> String {
         var systemInfo = utsname()
         uname(&systemInfo)
-        return withUnsafePointer(to: &systemInfo.machine) { pointer in
-            pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: systemInfo.machine)) {
+        var machine = systemInfo.machine
+        let capacity = MemoryLayout.size(ofValue: machine)
+        return withUnsafePointer(to: &machine) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: capacity) {
                 String(cString: $0)
             }
         }
