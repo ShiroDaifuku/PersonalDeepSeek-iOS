@@ -89,7 +89,7 @@ private enum MemoryEvaluationBenchmark {
         add("A4", "明确 ADD", "我不太喜欢特别慢热的电影。", .preference, required: [["不"], ["慢热"]]),
         add("A5", "明确 ADD", "我现在正在自己写一个调用 DeepSeek API 的 iOS AI 客户端。", .ongoingContext, required: [["DeepSeek"], ["iOS"], ["客户端"]]),
         add("A6", "明确 ADD", "我这几天主要在复习线性代数。", .recentState, required: [["线性代数", "线代"]]),
-        add("A7", "明确 ADD", "我已经把这本小说看完了，后面推荐时不用担心剧透。", .event, required: [["看完"], ["剧透"]]),
+        add("A7", "明确 ADD", "我已经把这本小说看完了，后面推荐时不用担心剧透。", .event, required: [["看完", "读完", "完成阅读"], ["剧透"]]),
 
         noop("B1", "NOOP", "矩阵的秩是什么意思？"),
         noop("B2", "NOOP", "最近游戏王环境怎么样？"),
@@ -549,7 +549,7 @@ private struct MemoryEvaluationReport: Codable, Sendable {
             "## H. Prompt Changes", "",
             environment.promptVersion == 1
                 ? "Baseline production prompt v1; no benchmark-specific prompt was used."
-                : "Production prompt v1 → v2. Baseline: 74/102 passed, FPR 3.51%, 23 false negatives, 3 bad reinforces, 6 bad supersedes. v2 clarifies kind boundaries, completed events, mixed third-party/self statements, weak-interest NOOP, and self-contained canonical text; validator/evidence filtering was generalized without changing JSON schema v1. Current results are shown above.",
+                : "Production prompt v1 → v2 → v3. v1 baseline: 74/102 passed, FPR 3.51%, 23 false negatives, 3 bad reinforces, 6 bad supersedes. v2: 96/102 passed, FPR 0%, precision 100%, with one genuine A7 NOOP, one valid ‘读完’ synonym initially scored too narrowly, and four transient timeouts. v2 clarified kind boundaries, completed events, mixed third-party/self statements, weak-interest NOOP, and self-contained canonical text; validator/evidence filtering was generalized without changing JSON schema v1. v3 generally clarifies that an explicitly completed activity which changes future assistance behavior is a useful event. Current results are shown above.",
             "",
             "## I. Recommendation", "",
             "**\(summary.recommendation)**", ""
