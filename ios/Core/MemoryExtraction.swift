@@ -11,7 +11,7 @@ enum MemoryExtractionConfiguration {
 }
 
 enum MemoryExtractorPrompt {
-    static let version = 3
+    static let version = 4
     static let text = """
     You extract durable personal context that may improve future assistance. You are not summarizing the conversation.
 
@@ -32,7 +32,7 @@ enum MemoryExtractorPrompt {
     12. canonicalText must be concise, third-person, independently understandable, begin with “用户”, and must not quote the conversation.
     13. When a message contains both third-party information and an explicit first-person fact, extract only the first-person fact. Never transfer the third party's state to the user.
     14. “偶尔看看但算不上喜欢”, a one-time “感觉还行”, and momentary activities such as drinking water are NOOP, not preferences or useful state.
-    15. Avoid deictic dialogue residue such as “这个项目”, “这本”, or “当前讨论的”. Restate only the supported, independently understandable fact.
+    15. Avoid deictic dialogue residue such as “这个/那个项目”, “这本/那本”, “此前讨论的”, or “当前提及的”. If no supported entity name is available, use a generic self-contained noun such as “一部小说”.
 
     Kind guide:
     - durableFact: relatively stable identity, education, owned/used device, or stable circumstance.
@@ -362,7 +362,7 @@ enum MemoryLexicalScorer {
 }
 
 enum MemoryOperationValidator {
-    static let version = 2
+    static let version = 3
 
     static func validate(
         response: MemoryExtractionResponse,
@@ -433,7 +433,7 @@ enum MemoryOperationValidator {
 }
 
 enum MemoryEvidenceFilter {
-    static let version = 2
+    static let version = 3
 
     static func allows(userText: String, canonicalText: String) -> Bool {
         let combined = (userText + "\n" + canonicalText).lowercased()
@@ -442,10 +442,12 @@ enum MemoryEvidenceFilter {
         let thirdParty = ["我朋友", "我的朋友", "朋友跟我说", "我同事", "我的同事", "我家人", "我的家人", "我妈妈", "我爸爸", "我室友", "我的室友", "我同学", "我的同学", "我弟", "我妹", "他最近", "她最近"]
         let hypothetical = ["假设我", "假如我", "如果我住", "如果我是", "如果以后我", "角色扮演", "小说里的", "小说男主", "翻译以下", "翻译这段", "帮我翻译", "引用内容"]
         let lowValue = ["我现在在喝水", "算不上喜欢", "第一次看", "感觉还行"]
+        let dialogueResidue = ["这个项目", "那个项目", "这本", "那本", "此前讨论", "此前提及", "当前讨论", "当前提及", "根据以上对话", "用户刚才说"]
         guard !secrets.contains(where: combined.contains),
               !sensitive.contains(where: combined.contains),
               !hypothetical.contains(where: combined.contains),
-              !lowValue.contains(where: combined.contains)
+              !lowValue.contains(where: combined.contains),
+              !dialogueResidue.contains(where: canonicalText.contains)
         else { return false }
 
         let containsThirdParty = thirdParty.contains(where: userText.contains)
