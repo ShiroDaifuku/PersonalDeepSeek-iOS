@@ -98,6 +98,7 @@ final class MemoryStoreTests: XCTestCase {
             statusRawValue: MemoryStatus.active.rawValue,
             createdAt: inserted.createdAt,
             updatedAt: inserted.updatedAt.addingTimeInterval(1),
+            lastConfirmedAt: inserted.lastConfirmedAt,
             lastReinforcedAt: inserted.updatedAt,
             expiresAt: nil,
             reinforcementCount: 1
@@ -347,6 +348,7 @@ final class MemoryStoreTests: XCTestCase {
             statusRawValue: inserted.statusRawValue,
             createdAt: inserted.createdAt,
             updatedAt: inserted.updatedAt.addingTimeInterval(1),
+            lastConfirmedAt: inserted.lastConfirmedAt,
             lastReinforcedAt: nil,
             expiresAt: nil,
             reinforcementCount: inserted.reinforcementCount

@@ -104,6 +104,7 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
     var statusRawValue: String
     var createdAt: Date
     var updatedAt: Date
+    var lastConfirmedAt: Date = Date(timeIntervalSince1970: 0)
     var lastReinforcedAt: Date?
     var expiresAt: Date?
     var reinforcementCount: Int
@@ -120,6 +121,7 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
         statusRawValue: String = MemoryStatus.active.rawValue,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
+        lastConfirmedAt: Date? = nil,
         lastReinforcedAt: Date? = nil,
         expiresAt: Date? = nil,
         reinforcementCount: Int = 0,
@@ -135,6 +137,7 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
         self.statusRawValue = statusRawValue
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.lastConfirmedAt = lastConfirmedAt ?? createdAt
         self.lastReinforcedAt = lastReinforcedAt
         self.expiresAt = expiresAt
         self.reinforcementCount = max(0, reinforcementCount)
@@ -239,6 +242,7 @@ struct MemoryItemSnapshot: Codable, Sendable, Equatable, Identifiable {
     let statusRawValue: String
     let createdAt: Date
     let updatedAt: Date
+    let lastConfirmedAt: Date
     let lastReinforcedAt: Date?
     let expiresAt: Date?
     let reinforcementCount: Int
@@ -349,6 +353,7 @@ struct MemoryItemDraft: Sendable, Equatable {
     var status: MemoryStatus
     var createdAt: Date
     var updatedAt: Date
+    var lastConfirmedAt: Date?
     var lastReinforcedAt: Date?
     var expiresAt: Date?
     var reinforcementCount: Int
@@ -363,6 +368,7 @@ struct MemoryItemDraft: Sendable, Equatable {
         status: MemoryStatus = .active,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
+        lastConfirmedAt: Date? = nil,
         lastReinforcedAt: Date? = nil,
         expiresAt: Date? = nil,
         reinforcementCount: Int = 0
@@ -376,6 +382,7 @@ struct MemoryItemDraft: Sendable, Equatable {
         self.status = status
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.lastConfirmedAt = lastConfirmedAt
         self.lastReinforcedAt = lastReinforcedAt
         self.expiresAt = expiresAt
         self.reinforcementCount = max(0, reinforcementCount)

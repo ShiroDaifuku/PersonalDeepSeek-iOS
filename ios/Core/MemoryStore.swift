@@ -93,6 +93,7 @@ actor MemoryStore {
             statusRawValue: draft.status.rawValue,
             createdAt: draft.createdAt,
             updatedAt: draft.updatedAt,
+            lastConfirmedAt: draft.lastConfirmedAt,
             lastReinforcedAt: draft.lastReinforcedAt,
             expiresAt: draft.expiresAt,
             reinforcementCount: draft.reinforcementCount
@@ -117,6 +118,37 @@ actor MemoryStore {
         return try fetch(descriptor).map(memorySnapshot)
     }
 
+    func retrievalRecords(scopeID: String) throws -> [MemoryRetrievalRecord] {
+        let scope = try validatedScope(scopeID)
+        let requestedScope = scope
+        let items = try fetch(FetchDescriptor<MemoryItem>(
+            predicate: #Predicate { $0.scopeID == requestedScope },
+            sortBy: [SortDescriptor(\MemoryItem.lastConfirmedAt, order: .reverse)]
+        ))
+        return items.map { item in
+            let sourceValues = item.sources
+                .filter { $0.scopeID == scope }
+                .map { sourceSnapshot($0, memoryItemID: item.id) }
+            return MemoryRetrievalRecord(memory: memorySnapshot(item), sources: sourceValues)
+        }
+    }
+
+    @discardableResult
+    func setEmbeddingData(
+        _ data: Data,
+        memoryID: UUID,
+        scopeID: String,
+        expectedCanonicalTextHash: String
+    ) throws -> Bool {
+        let scope = try validatedScope(scopeID)
+        guard let item = try memoryModel(id: memoryID, scopeID: scope) else { throw MemoryError.memoryNotFound }
+        guard MemoryEmbeddingText.hash(item.canonicalText) == expectedCanonicalTextHash else { return false }
+        _ = try MemoryEmbeddingEnvelope.decode(data)
+        item.embeddingData = data
+        try save()
+        return true
+    }
+
     func updateMemory(_ snapshot: MemoryItemSnapshot) throws -> MemoryItemSnapshot {
         let scope = try validatedScope(snapshot.scopeID)
         let text = snapshot.canonicalText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -129,6 +161,7 @@ actor MemoryStore {
         item.confidence = MemoryScore.clamped(snapshot.confidence)
         item.statusRawValue = snapshot.statusRawValue
         item.updatedAt = snapshot.updatedAt
+        item.lastConfirmedAt = snapshot.lastConfirmedAt
         item.lastReinforcedAt = snapshot.lastReinforcedAt
         item.expiresAt = snapshot.expiresAt
         item.reinforcementCount = max(0, snapshot.reinforcementCount)
@@ -316,7 +349,8 @@ actor MemoryStore {
                     canonicalText: canonicalText,
                     importance: importance,
                     confidence: confidence,
-                    now: now
+                    now: now,
+                    confirmedAt: turn.completedAt
                 )
                 modelContext.insert(item)
                 attachSource(to: item, turn: turn, scopeID: scope, now: now)
@@ -330,8 +364,9 @@ actor MemoryStore {
                 item.confidence = max(item.confidence, confidence)
                 item.reinforcementCount += 1
                 item.lastReinforcedAt = now
+                item.lastConfirmedAt = turn.completedAt
                 item.updatedAt = now
-                item.expiresAt = expiration(for: MemoryKind(rawValue: item.kindRawValue) ?? .other, now: now)
+                item.expiresAt = expiration(for: MemoryKind(rawValue: item.kindRawValue) ?? .other, now: turn.completedAt)
                 attachSource(to: item, turn: turn, scopeID: scope, now: now)
                 mutationCount += 1
 
@@ -347,7 +382,8 @@ actor MemoryStore {
                     canonicalText: canonicalText,
                     importance: importance,
                     confidence: confidence,
-                    now: now
+                    now: now,
+                    confirmedAt: turn.completedAt
                 )
                 modelContext.insert(newItem)
                 attachSource(to: newItem, turn: turn, scopeID: scope, now: now)
@@ -442,7 +478,8 @@ actor MemoryStore {
         canonicalText: String,
         importance: Double,
         confidence: Double,
-        now: Date
+        now: Date,
+        confirmedAt: Date
     ) -> MemoryItem {
         MemoryItem(
             scopeID: scopeID,
@@ -454,7 +491,8 @@ actor MemoryStore {
             statusRawValue: MemoryStatus.active.rawValue,
             createdAt: now,
             updatedAt: now,
-            expiresAt: expiration(for: kind, now: now)
+            lastConfirmedAt: confirmedAt,
+            expiresAt: expiration(for: kind, now: confirmedAt)
         )
     }
 
@@ -506,6 +544,7 @@ actor MemoryStore {
             statusRawValue: item.statusRawValue,
             createdAt: item.createdAt,
             updatedAt: item.updatedAt,
+            lastConfirmedAt: item.lastConfirmedAt.timeIntervalSince1970 > 0 ? item.lastConfirmedAt : item.createdAt,
             lastReinforcedAt: item.lastReinforcedAt,
             expiresAt: item.expiresAt,
             reinforcementCount: item.reinforcementCount
