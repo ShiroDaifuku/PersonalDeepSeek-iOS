@@ -47,44 +47,55 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
 
     var body: some View {
-        ZStack(alignment: .leading) {
-        VStack(spacing: 0) {
-            if let conversation = current {
-                let orderedMessages = conversation.messages.sorted { $0.createdAt < $1.createdAt }
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 14) {
-                            ForEach(orderedMessages) { message in
-                                let isActive = isStreaming && orderedMessages.last?.id == message.id
-                                MessageBubble(
-                                    message: message,
-                                    isStreaming: isActive,
-                                    streamingReasoning: isActive ? streamingReasoningPreview : nil,
-                                    streamingReasoningCount: isActive ? streamingReasoningCount : nil,
-                                    streamingContent: isActive ? streamingContent : nil,
-                                    animationActive: scenePhase == .active && !showingConversations,
-                                    onStop: cancelGeneration
-                                )
-                                .id(message.id)
-                            }
-                            Color.clear.frame(height: 1).id("chat-bottom")
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 16)
-                    }
-                    .defaultScrollAnchor(.bottom)
-                    .scrollDismissesKeyboard(.interactively)
-                    .background(Color(.systemGroupedBackground))
-                    .onChange(of: orderedMessages.count) { _, _ in scrollToBottom(proxy) }
-                    .onChange(of: scrollRequest) { _, _ in scrollToBottom(proxy) }
+        presentedChat
+    }
+
+    private var presentedChat: some View {
+        lifecycleChat
+            .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
+            .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { confirmTask(action) }, onCancel: { cancelTask(action) }) }
+            .sheet(item: $pendingKnowledgeAction) { pending in KnowledgeToolConfirmationView(pending: pending, onConfirm: { confirmKnowledge(pending) }, onCancel: { pendingKnowledgeAction = nil }) }
+            .fullScreenCover(isPresented: $showingCamera) { CameraPicker { data in if let data, let value = PendingAttachment.image(data: data, name: "camera.jpg") { attachments.append(value) } } }
+            .fileImporter(isPresented: $showingFilePicker, allowedContentTypes: [.image, .plainText, .json, .pdf], allowsMultipleSelection: true) { result in importFiles(result) }
+            .fileImporter(isPresented: $showingKnowledgeImporter, allowedContentTypes: [.pdf, .plainText, .json, .commaSeparatedText, .xml], allowsMultipleSelection: true) { result in importKnowledgeFiles(result) }
+            .onChange(of: photoSelection) { _, selection in loadPhotos(selection) }
+            .alert("无法添加附件", isPresented: Binding(get: { attachmentError != nil }, set: { if !$0 { attachmentError = nil } })) { Button("好") {} } message: { Text(attachmentError ?? "") }
+    }
+
+    private var lifecycleChat: some View {
+        navigationChat
+            .onAppear { current = conversations.first; openPendingConversationIfNeeded() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background, isStreaming, let current { LiveActivityManager.shared.start(title: current.title, kind: "generation", detail: toolStatus ?? "正在生成回答") }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { _ in openPendingConversationIfNeeded() }
+    }
+
+    private var navigationChat: some View {
+        chatLayout
+            .navigationTitle(current?.title ?? "DeepSeek").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button { composerFocused = false; withAnimation(.easeOut(duration: 0.2)) { showingConversations.toggle() } } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("展开对话侧栏") }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu { ForEach(["deepseek-flash", "deepseek-v4-pro"], id: \.self) { value in Button(value) { defaultModel = value; current?.model = value } } } label: { Image(systemName: "cpu") }.accessibilityLabel("选择模型")
+                    if current != nil { Button { showingConversationSettings = true } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("会话设置") }
                 }
-            } else { ContentUnavailableView("开始对话", systemImage: "sparkles", description: Text("对话、知识库和研究都在这台设备上编排。")) }
+            }
+    }
+
+    private var chatLayout: some View {
+        ZStack(alignment: .leading) {
+            primaryChat
+            sidebarOverlay
+        }
+    }
+
+    private var primaryChat: some View {
+        VStack(spacing: 0) {
+            conversationMessages
             if let toolStatus, isStreaming, !activeAssistantHasOutput {
-                ThinkingStatusCard(
-                    status: toolStatus,
-                    animationActive: scenePhase == .active && !showingConversations,
-                    onStop: cancelGeneration
-                )
-                .padding(.horizontal, 12).padding(.top, 7)
+                ThinkingStatusCard(status: toolStatus, animationActive: scenePhase == .active && !showingConversations, onStop: cancelGeneration)
+                    .padding(.horizontal, 12).padding(.top, 7)
             }
             if let errorText { Text(errorText).foregroundStyle(.red).font(.caption).padding(.horizontal) }
             if !attachments.isEmpty { AttachmentStrip(attachments: attachments) { id in attachments.removeAll { $0.id == id } } }
@@ -94,41 +105,53 @@ struct ChatView: View {
             }
             composer
         }
+    }
+
+    @ViewBuilder private var conversationMessages: some View {
+        if let conversation = current {
+            let orderedMessages = conversation.messages.sorted { $0.createdAt < $1.createdAt }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 14) {
+                        ForEach(orderedMessages) { message in
+                            let isActive = isStreaming && orderedMessages.last?.id == message.id
+                            MessageBubble(
+                                message: message,
+                                isStreaming: isActive,
+                                streamingReasoning: isActive ? streamingReasoningPreview : nil,
+                                streamingReasoningCount: isActive ? streamingReasoningCount : nil,
+                                streamingContent: isActive ? streamingContent : nil,
+                                animationActive: scenePhase == .active && !showingConversations,
+                                onStop: cancelGeneration
+                            ).id(message.id)
+                        }
+                        Color.clear.frame(height: 1).id("chat-bottom")
+                    }.padding(.horizontal, 12).padding(.vertical, 16)
+                }
+                .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.interactively)
+                .background(Color(.systemGroupedBackground))
+                .onChange(of: orderedMessages.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: scrollRequest) { _, _ in scrollToBottom(proxy) }
+            }
+        } else {
+            ContentUnavailableView("开始对话", systemImage: "sparkles", description: Text("对话、知识库和研究都在这台设备上编排。"))
+        }
+    }
+
+    @ViewBuilder private var sidebarOverlay: some View {
         if showingConversations {
             Color.black.opacity(0.22).ignoresSafeArea().onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
             HStack(spacing: 0) {
-                ConversationSidebarView(
-                    selection: $current,
-                    defaultModel: defaultModel,
-                    isThinking: isStreaming,
-                    animationActive: scenePhase == .active
-                ) { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
-                    .frame(width: min(UIScreen.main.bounds.width * 0.86, 350)).frame(maxHeight: .infinity).shadow(color: .black.opacity(0.18), radius: 18, x: 8)
+                ConversationSidebarView(selection: $current, defaultModel: defaultModel, isThinking: isStreaming, animationActive: scenePhase == .active) {
+                    withAnimation(.easeOut(duration: 0.2)) { showingConversations = false }
+                }
+                .frame(width: min(UIScreen.main.bounds.width * 0.86, 350))
+                .frame(maxHeight: .infinity)
+                .shadow(color: .black.opacity(0.18), radius: 18, x: 8)
                 Spacer(minLength: 0)
             }.transition(.move(edge: .leading))
         }
-        }
-        .navigationTitle(current?.title ?? "DeepSeek").navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button { composerFocused = false; withAnimation(.easeOut(duration: 0.2)) { showingConversations.toggle() } } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("展开对话侧栏") }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Menu { ForEach(["deepseek-flash", "deepseek-v4-pro"], id: \.self) { value in Button(value) { defaultModel = value; current?.model = value } } } label: { Image(systemName: "cpu") }.accessibilityLabel("选择模型")
-                if current != nil { Button { showingConversationSettings = true } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("会话设置") }
-            }
-        }
-        .onAppear { current = conversations.first; openPendingConversationIfNeeded() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background, isStreaming, let current { LiveActivityManager.shared.start(title: current.title, kind: "generation", detail: toolStatus ?? "正在生成回答") }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { _ in openPendingConversationIfNeeded() }
-        .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
-        .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { confirmTask(action) }, onCancel: { cancelTask(action) }) }
-        .sheet(item: $pendingKnowledgeAction) { pending in KnowledgeToolConfirmationView(pending: pending, onConfirm: { confirmKnowledge(pending) }, onCancel: { pendingKnowledgeAction = nil }) }
-        .fullScreenCover(isPresented: $showingCamera) { CameraPicker { data in if let data, let value = PendingAttachment.image(data: data, name: "camera.jpg") { attachments.append(value) } } }
-        .fileImporter(isPresented: $showingFilePicker, allowedContentTypes: [.image, .plainText, .json, .pdf], allowsMultipleSelection: true) { result in importFiles(result) }
-        .fileImporter(isPresented: $showingKnowledgeImporter, allowedContentTypes: [.pdf, .plainText, .json, .commaSeparatedText, .xml], allowsMultipleSelection: true) { result in importKnowledgeFiles(result) }
-        .onChange(of: photoSelection) { _, selection in loadPhotos(selection) }
-        .alert("无法添加附件", isPresented: Binding(get: { attachmentError != nil }, set: { if !$0 { attachmentError = nil } })) { Button("好") {} } message: { Text(attachmentError ?? "") }
     }
 
     private var composer: some View {
