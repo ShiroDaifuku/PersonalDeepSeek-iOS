@@ -1,0 +1,111 @@
+name: Validate iOS Memory Step 1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-memory-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-memory:
+    name: Build and test on iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
+      - name: Print environment
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Verify Memory sources are in generated targets
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          project_file="PersonalDeepSeek.xcodeproj/project.pbxproj"
+          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryStoreTests.swift; do
+            grep -q "$source" "$project_file"
+          done
+
+      - name: Show schemes and select Simulator
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodebuild -project PersonalDeepSeek.xcodeproj -list
+          xcodebuild \
+            -project PersonalDeepSeek.xcodeproj \
+            -scheme PersonalDeepSeek \
+            -showdestinations
+          xcrun simctl list devices available
+          destination_id="$(xcrun simctl list devices available \
+            | sed -nE '/iPhone/s/.*\(([0-9A-Fa-f-]{36})\) \((Booted|Shutdown)\).*/\1/p' \
+            | sed -n '1p')"
+          test -n "$destination_id"
+          destination_name="$(xcrun simctl list devices available \
+            | grep "$destination_id" \
+            | sed -E 's/^[[:space:]]*([^()]*) \(.*/\1/' \
+            | sed -n '1p')"
+          echo "SIMULATOR_ID=$destination_id" >> "$GITHUB_ENV"
+          echo "Selected Simulator: $destination_name ($destination_id)"
+
+      - name: Build for testing
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PersonalDeepSeek.xcodeproj \
+            -scheme PersonalDeepSeek \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/MemoryValidationDerivedData" \
+            build-for-testing \
+            | tee "$RUNNER_TEMP/memory-build.log"
+
+      - name: Run XCTest
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PersonalDeepSeek.xcodeproj \
+            -scheme PersonalDeepSeek \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/MemoryValidationDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/MemoryValidation.xcresult" \
+            test-without-building \
+            | tee "$RUNNER_TEMP/memory-tests.log"
+
+      - name: Print test summary and Memory warnings
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -d "$RUNNER_TEMP/MemoryValidation.xcresult" ]]; then
+            xcrun xcresulttool get test-results summary \
+              --path "$RUNNER_TEMP/MemoryValidation.xcresult" || true
+          fi
+          echo "Memory-related compiler diagnostics:"
+          grep -hE 'Memory(Models|Store|Service|StoreTests)\.swift:.*(warning|error):' \
+            "$RUNNER_TEMP/memory-build.log" \
+            "$RUNNER_TEMP/memory-tests.log" 2>/dev/null || echo "none"

@@ -6,7 +6,16 @@ struct PersonalDeepSeekApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     var body: some Scene {
         WindowGroup { RootView() }
-            .modelContainer(for: [Conversation.self, ChatMessage.self, LocalKnowledgeBase.self, LocalKnowledgeDocument.self, LocalKnowledgeChunk.self])
+            .modelContainer(for: [
+                Conversation.self,
+                ChatMessage.self,
+                LocalKnowledgeBase.self,
+                LocalKnowledgeDocument.self,
+                LocalKnowledgeChunk.self,
+                UserMemoryProfile.self,
+                MemoryItem.self,
+                MemorySource.self
+            ])
     }
 }
 
