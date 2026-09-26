@@ -65,6 +65,30 @@ final class MemoryRetrievalTests: XCTestCase {
         XCTAssertEqual(durableResult.first?.memoryID, durable.id)
     }
 
+    func testLexicalEntityPathRejectsPreferenceForFactualQuestion() async throws {
+        let store = MemoryStore(modelContainer: try makeContainer())
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let preference = try await insert(
+            store,
+            kind: .preference,
+            text: "用户常听 YOASOBI 和 Aimer 的音乐",
+            now: now
+        )
+        let retriever = MemoryRetriever(store: store, semanticResolver: nil)
+
+        let factual = try await retriever.search(
+            .init(primaryText: "Aimer 最新专辑什么时候发布？"),
+            now: now
+        )
+        XCTAssertTrue(factual.isEmpty)
+
+        let recommendation = try await retriever.search(
+            .init(primaryText: "按我的听歌口味推荐 Aimer 的歌曲"),
+            now: now
+        )
+        XCTAssertEqual(recommendation.first?.memoryID, preference.id)
+    }
+
     func testContextTextResolvesFollowUpAndConversationExclusionUsesAllSources() async throws {
         let store = MemoryStore(modelContainer: try makeContainer())
         let now = Date(timeIntervalSince1970: 1_900_000_000)

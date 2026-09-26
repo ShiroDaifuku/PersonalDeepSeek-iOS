@@ -225,7 +225,10 @@ actor MemorySemanticPrecisionEvaluator {
             let sorted = value.rows.sorted { $0.semantic > $1.semantic }
             let topID = sorted.first?.memory.id
             let lexical = value.rows.sorted { max($0.lexical, $0.entity ? 1 : 0) > max($1.lexical, $1.entity ? 1 : 0) }
-                .first { max($0.lexical, $0.entity ? 1 : 0) >= parameters.lexicalThreshold }
+                .first {
+                    max($0.lexical, $0.entity ? 1 : 0) >= parameters.lexicalThreshold &&
+                    usefulness($0, query: value.benchmark, statistics: value.statistics, parameters: parameters).kindCompatible
+                }
             let semantic = sorted.first.flatMap { row -> PreparedRow? in
                 let usefulness = usefulness(row, query: value.benchmark, statistics: value.statistics, parameters: parameters)
                 return semanticAccepted(row, usefulness: usefulness, statistics: value.statistics, parameters: parameters) ? row : nil
@@ -323,25 +326,149 @@ actor MemorySemanticPrecisionEvaluator {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(report).write(to: json, options: .atomic)
         let test = report.heldOut.modes.first { $0.name == "Production hybrid" }!.metrics
-        let text = """
+        let text = renderMarkdown(report)
+        try text.write(to: markdown, atomically: true, encoding: .utf8)
+        return .init(jsonURL: json, markdownURL: markdown, report: report)
+    }
+
+    private func renderMarkdown(_ report: MemorySemanticPrecisionReport) -> String {
+        let development = report.development.modes.first { $0.name == "Production hybrid" }!
+        let heldOut = report.heldOut.modes.first { $0.name == "Production hybrid" }!
+        let test = heldOut.metrics
+        let falseRetrievals = heldOut.queries.filter { $0.expectedMemoryID == nil && !$0.returnedIDs.isEmpty }
+        let falseNegatives = heldOut.queries.filter {
+            guard let expected = $0.expectedMemoryID else { return false }
+            return !$0.returnedIDs.contains(expected)
+        }
+        let lowOverlap = heldOut.queries.filter(\.lowOverlap)
+        let nearTopic = heldOut.queries.filter(\.nearTopicNegative)
+
+        func format(_ value: Double) -> String { String(format: "%.4f", value) }
+        func metricsLine(_ mode: MemorySemanticPrecisionReport.Mode) -> String {
+            let value = mode.metrics
+            return "| \(mode.name) | \(format(value.precisionAt1)) | \(format(value.precisionAt3)) | \(format(value.recallAt1)) | \(format(value.recallAt3)) | \(format(value.meanReciprocalRank)) | \(format(value.noResultAccuracy)) | \(format(value.falseRetrievalRate)) | \(format(value.lowOverlapRecall)) | \(format(value.nearTopicNegativeAccuracy)) |"
+        }
+        func queryLines(_ values: [MemorySemanticPrecisionReport.QueryResult], empty: String) -> String {
+            guard !values.isEmpty else { return "- \(empty)" }
+            return values.map { value in
+                let top = value.topCandidates.first
+                let scores = top.map {
+                    "semantic=\(format($0.semanticScore)), lexical=\(format($0.lexicalScore)), margin=\(format($0.top1Margin)), medianGap=\(format($0.medianGap)), robustZ=\(format($0.robustZ)), intent=\($0.queryIntent.rawValue), compatible=\($0.kindCompatible)"
+                } ?? "no candidates"
+                return "- `\(value.id)` [\(value.category)] \(value.query) — returned=\(value.returnedIDs.map(\.uuidString)); \(scores)"
+            }.joined(separator: "\n")
+        }
+        func distribution(_ values: [MemorySemanticPrecisionReport.QueryResult]) -> String {
+            let rows = values.compactMap { $0.topCandidates.first }
+            guard !rows.isEmpty else { return "n/a" }
+            func summary(_ keyPath: KeyPath<MemorySemanticPrecisionReport.Candidate, Double>) -> String {
+                let values = rows.map { $0[keyPath: keyPath] }.sorted()
+                let median = values.count.isMultiple(of: 2)
+                    ? (values[values.count / 2 - 1] + values[values.count / 2]) / 2
+                    : values[values.count / 2]
+                let mean = values.reduce(0, +) / Double(values.count)
+                return "min=\(format(values[0])), median=\(format(median)), mean=\(format(mean)), max=\(format(values[values.count - 1]))"
+            }
+            return "semantic {\(summary(\.semanticScore))}; margin {\(summary(\.top1Margin))}; medianGap {\(summary(\.medianGap))}; robustZ {\(summary(\.robustZ))}"
+        }
+        func nearTopicGroup(_ prefixes: [String]) -> [MemorySemanticPrecisionReport.QueryResult] {
+            nearTopic.filter { value in prefixes.contains { value.category.hasPrefix($0) } }
+        }
+
+        return """
         # Step 3.5B Semantic Precision Tuning Report
 
-        Provider: NLContextualEmbedding (Contextual unavailable → lexical/entity fallback; no NLEmbedding semantic fallback).
+        ## A. Provider
 
-        Development: \(report.development.queryCount) queries. Held-out: \(report.heldOut.queryCount) queries.
+        NLContextualEmbedding is the only production semantic candidate. If its assets are unavailable, retrieval uses the precision-first lexical/entity path; it does not fall back to NLEmbedding semantic retrieval.
 
-        Frozen parameters: absolute=\(report.frozenParameters.minimumAbsoluteSemantic), margin=\(report.frozenParameters.minimumTopMargin), medianGap=\(report.frozenParameters.minimumMedianGap), robustZ=\(report.frozenParameters.minimumRobustZ), lexical=\(report.frozenParameters.lexicalThreshold), maxSemantic=1, maxTotal=2.
+        ## B. Score Distribution Analysis
 
-        Held-out production hybrid: P@1=\(test.precisionAt1), P@3=\(test.precisionAt3), R@1=\(test.recallAt1), R@3=\(test.recallAt3), MRR=\(test.meanReciprocalRank), no-result=\(test.noResultAccuracy), false-retrieval=\(test.falseRetrievalRate), low-overlap=\(test.lowOverlapRecall), near-topic-negative=\(test.nearTopicNegativeAccuracy).
+        Development positives: \(distribution(report.development.modes[1].queries.filter { $0.expectedMemoryID != nil }))
+
+        Development hard negatives: \(distribution(report.development.modes[1].queries.filter { $0.expectedMemoryID == nil }))
+
+        Held-out positives: \(distribution(report.heldOut.modes[1].queries.filter { $0.expectedMemoryID != nil }))
+
+        Held-out hard negatives: \(distribution(report.heldOut.modes[1].queries.filter { $0.expectedMemoryID == nil }))
+
+        ## C. Usefulness Gate
+
+        - preference → recommendation, personalChoice, followUp
+        - durableFact → recommendation, personalChoice, personalTroubleshooting, followUp
+        - ongoingContext → projectContinuity, personalTroubleshooting, followUp
+        - recentState → learningContinuity, followUp, personalChoice
+        - event → learningContinuity, followUp; a high-confidence distribution may activate the event-continuity bypass
+        - other → followUp
+
+        The same compatibility boundary applies to semantic and lexical/entity candidate paths so an exact artist, movie, or device name cannot inject an unrelated preference into a factual answer.
+
+        ## D. Development Set
+
+        \(report.development.queryCount) queries: \(report.development.relevantCount) relevant and \(report.development.negativeCount) negative. Parameters were selected only from this set by a grid search over absolute score, top margin, median gap, and robust Z, prioritizing false-retrieval rate, then Precision@1, then low-overlap recall.
+
+        | Mode | P@1 | P@3 | R@1 | R@3 | MRR | No-result | False retrieval | Low-overlap | Near-topic negative |
+        |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+        \(report.development.modes.map(metricsLine).joined(separator: "\n"))
+
+        Development production hybrid: false-retrieval=\(format(development.metrics.falseRetrievalRate)), P@1=\(format(development.metrics.precisionAt1)).
+
+        ## E. Frozen Parameters
+
+        - minimumAbsoluteSemantic: \(report.frozenParameters.minimumAbsoluteSemantic)
+        - minimumTopMargin: \(report.frozenParameters.minimumTopMargin)
+        - minimumMedianGap: \(report.frozenParameters.minimumMedianGap)
+        - minimumRobustZ: \(report.frozenParameters.minimumRobustZ)
+        - lexicalThreshold: \(report.frozenParameters.lexicalThreshold)
+        - maxSemanticResults: \(report.frozenParameters.maxSemanticResults)
+        - maxTotalResults: \(report.frozenParameters.maxTotalResults)
+
+        ## F. Held-out Test
+
+        Parameters were frozen before these \(report.heldOut.queryCount) queries were embedded and evaluated.
+
+        | Mode | P@1 | P@3 | R@1 | R@3 | MRR | No-result | False retrieval | Low-overlap | Near-topic negative |
+        |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+        \(report.heldOut.modes.map(metricsLine).joined(separator: "\n"))
+
+        ## G. False Retrievals
+
+        \(queryLines(falseRetrievals, empty: "None"))
+
+        ## H. False Negatives
+
+        \(queryLines(falseNegatives, empty: "None"))
+
+        ## I. Low-overlap Cases
+
+        \(queryLines(lowOverlap, empty: "None"))
+
+        Low-overlap held-out recall: \(format(test.lowOverlapRecall)).
+
+        ## J. Near-topic Negatives
+
+        ### Mathematics across subfields
+        \(queryLines(nearTopicGroup(["math-"]), empty: "None"))
+
+        ### Development across platforms/frameworks
+        \(queryLines(nearTopicGroup(["dev-"]), empty: "None"))
+
+        ### Music preference vs factual
+        \(queryLines(nearTopicGroup(["music-", "audio-"]), empty: "None"))
+
+        ### Movie preference vs factual
+        \(queryLines(nearTopicGroup(["movie-"]), empty: "None"))
+
+        ## K. Existing Regression
 
         Leakage: expired=\(report.leakage.expired), superseded=\(report.leakage.superseded), invalidated=\(report.leakage.invalidated), cross-scope=\(report.leakage.crossScope), stale=\(report.leakage.staleEmbeddingUse).
 
-        Decision: **\(report.decision)**
+        ## L. Production Decision
 
-        Full per-query Top 5 scores, intent compatibility, acceptance and rejection reasons are in the JSON report.
+        **\(report.decision)**
+
+        The JSON artifact contains every query's Top 5 memory IDs, kinds, semantic and lexical scores, distribution statistics, intent compatibility, acceptance state, and rejection reasons. It does not contain production user memories.
         """
-        try text.write(to: markdown, atomically: true, encoding: .utf8)
-        return .init(jsonURL: json, markdownURL: markdown, report: report)
     }
 
     private func validateLeakage(
@@ -504,9 +631,9 @@ private enum PrecisionBenchmark {
             negative("dn29","cloud-fact","Cloudflare CDN 如何缓存静态资源？"), negative("dn30","cloud-fact","Workers 的免费额度是多少？"),
             negative("dn31","ios-fact","iOS 的应用沙盒包含哪些目录？"), negative("dn32","ios-fact","SwiftUI 的 View 协议如何工作？"),
             negative("dn33","privacy-fact","端到端加密的原理是什么？"), negative("dn34","privacy-fact","GDPR 适用于哪些地区？"),
-            negative("dn35","writing","写一首关于海边的短诗。",false), negative("dn36","weather","明天北京天气怎么样？",false),
-            negative("dn37","history","莎士比亚出生在哪里？",false), negative("dn38","science","黑洞霍金辐射是什么？",false),
-            negative("dn39","finance","美元兑人民币汇率是多少？",false), negative("dn40","translation","把这句话翻译成法语。",false)
+            negative("dn35","writing","写一首关于海边的短诗。",near: false), negative("dn36","weather","明天北京天气怎么样？",near: false),
+            negative("dn37","history","莎士比亚出生在哪里？",near: false), negative("dn38","science","黑洞霍金辐射是什么？",near: false),
+            negative("dn39","finance","美元兑人民币汇率是多少？",near: false), negative("dn40","translation","把这句话翻译成法语。",near: false)
         ]
         return positives + negatives
     }
@@ -539,7 +666,7 @@ private enum PrecisionBenchmark {
             negative("tn19","food-fact","植物蛋白如何做到营养互补？"), negative("tn20","timezone-fact","夏令时为什么会产生？"),
             negative("tn21","running-fact","跑鞋的碳板有什么作用？"), negative("tn22","cloud-fact","CDN 回源机制是怎样的？"),
             negative("tn23","ios-fact","App 生命周期有哪些状态？"), negative("tn24","privacy-fact","非对称加密如何交换密钥？"),
-            negative("tn25","general","太阳系有多少颗行星？",false)
+            negative("tn25","general","太阳系有多少颗行星？",near: false)
         ]
         return positives + negatives
     }

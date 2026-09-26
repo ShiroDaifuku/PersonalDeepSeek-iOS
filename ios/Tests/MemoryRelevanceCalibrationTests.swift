@@ -36,6 +36,26 @@ final class MemoryRelevanceCalibrationTests: XCTestCase {
         XCTAssertTrue(recommendation.kindCompatible)
     }
 
+    func testPersonalContextClassifierCoversUserRelativeFacts() {
+        XCTAssertEqual(MemoryQueryIntentClassifier.classify("我的猫需要做年度体检吗？"), .personalChoice)
+        XCTAssertEqual(MemoryQueryIntentClassifier.classify("我的宠物猫是什么？"), .personalChoice)
+        XCTAssertEqual(MemoryQueryIntentClassifier.classify("我常用地区的早上八点创建周期提醒。"), .personalChoice)
+        XCTAssertEqual(MemoryQueryIntentClassifier.classify("我的项目下一步怎样实现跨会话状态？"), .projectContinuity)
+        XCTAssertEqual(MemoryQueryIntentClassifier.classify("我最近学的科目下一章该看什么？"), .learningContinuity)
+    }
+
+    func testUsefulnessRejectsLexicallyExactPreferenceForFactualQuestion() {
+        let statistics = MemorySemanticQueryStatistics.make(scores: [0.97, 0.81, 0.78], epsilon: 0.000_001)
+        let decision = MemoryUsefulnessGate.evaluate(
+            kind: .preference,
+            query: "Aimer 最新专辑什么时候发布？",
+            statistics: statistics,
+            configuration: .init()
+        )
+        XCTAssertEqual(decision.intent, .generalFact)
+        XCTAssertFalse(decision.kindCompatible)
+    }
+
     func testEventContinuityCanUseHighConfidenceDistribution() throws {
         let statistics = try XCTUnwrap(MemorySemanticQueryStatistics.make(
             scores: [0.97, 0.80, 0.78, 0.77], epsilon: 0.000_001

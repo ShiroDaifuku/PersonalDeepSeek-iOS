@@ -258,7 +258,15 @@ actor MemoryRetriever {
             ($0.semantic ?? 0) < ($1.semantic ?? 0)
         }?.item.id
         let lexicalIDs = Set(working.filter {
-            $0.eligibilityRejection == nil && max($0.lexical, $0.entity ? 1 : 0) >= configuration.lexicalGate
+            guard $0.eligibilityRejection == nil,
+                  max($0.lexical, $0.entity ? 1 : 0) >= configuration.lexicalGate
+            else { return false }
+            return MemoryUsefulnessGate.evaluate(
+                kind: $0.item.kind,
+                query: query,
+                statistics: statistics,
+                configuration: configuration.semanticConfidence
+            ).kindCompatible
         }.sorted {
             max($0.lexical, $0.entity ? 1 : 0) > max($1.lexical, $1.entity ? 1 : 0)
         }.prefix(max(0, configuration.maximumLexicalResults)).map { $0.item.id })
@@ -289,6 +297,11 @@ actor MemoryRetriever {
                 }
             } else if value.eligibilityRejection == nil {
                 reasons.append(.staleEmbedding)
+            }
+            if value.eligibilityRejection == nil,
+               max(value.lexical, value.entity ? 1 : 0) >= configuration.lexicalGate,
+               !usefulness.kindCompatible {
+                reasons.append(.intentKindIncompatible)
             }
             if !lexicalAccepted && value.eligibilityRejection == nil && !semanticAccepted &&
                 max(value.lexical, value.entity ? 1 : 0) < configuration.lexicalGate {
