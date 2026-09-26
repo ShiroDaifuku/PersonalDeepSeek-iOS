@@ -39,6 +39,7 @@ final class MemoryRelevanceCalibrationTests: XCTestCase {
     func testPersonalContextClassifierCoversUserRelativeFacts() {
         XCTAssertEqual(MemoryQueryIntentClassifier.classify("我的猫需要做年度体检吗？"), .personalChoice)
         XCTAssertEqual(MemoryQueryIntentClassifier.classify("我的宠物猫是什么？"), .personalChoice)
+        XCTAssertEqual(MemoryQueryIntentClassifier.classify("我偏好什么界面模式？"), .personalChoice)
         XCTAssertEqual(MemoryQueryIntentClassifier.classify("我常用地区的早上八点创建周期提醒。"), .personalChoice)
         XCTAssertEqual(MemoryQueryIntentClassifier.classify("我的项目下一步怎样实现跨会话状态？"), .projectContinuity)
         XCTAssertEqual(MemoryQueryIntentClassifier.classify("我最近学的科目下一章该看什么？"), .learningContinuity)

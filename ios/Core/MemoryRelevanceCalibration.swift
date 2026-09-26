@@ -100,7 +100,7 @@ enum MemoryQueryIntentClassifier {
         if contains(value, ["我这个项目", "我的项目", "这个项目", "当前项目", "现在这个 app", "这个 app", "手机端 ai 助手", "客户端", "下一步", "继续实现", "怎么设计", "跨会话", "project"]) { return .projectContinuity }
         if contains(value, ["我的电脑", "我电脑", "我手机", "我的设备", "独显", "黑屏", "闪屏", "报错", "故障", "排查", "troubleshoot"]) { return .personalTroubleshooting }
         if contains(value, ["第14题", "第 14 题", "知识点", "仍不能", "还是不能", "换基", "谱完全", "特征根", "矩阵", "先前讨论", "学习进度", "最近学", "最近复习", "复习内容"]) { return .learningContinuity }
-        if contains(value, ["选哪个", "怎么选", "买哪个", "是否适合", "能不能吃", "我能不能", "我可以", "我该", "比较一下", "对我", "预算", "我家", "我的猫", "我的宠物", "我的饮食", "我的时区", "我的周期", "我常用", "按我", "根据我", "符合我", "我适合", "我会", "我的习惯", "我的偏好", "我的", "choice"]) { return .personalChoice }
+        if contains(value, ["选哪个", "怎么选", "买哪个", "是否适合", "能不能吃", "我能不能", "我可以", "我该", "我偏好", "比较一下", "对我", "预算", "我家", "我的猫", "我的宠物", "我的饮食", "我的时区", "我的周期", "我常用", "按我", "根据我", "符合我", "我适合", "我会", "我的习惯", "我的偏好", "我的", "choice"]) { return .personalChoice }
         if contains(value, ["谁", "哪年", "什么时候", "发布日期", "上映日期", "票房", "导演", "最新专辑", "叫什么", "多少", "where", "when", "who"]) { return .generalFact }
         if contains(value, ["为什么", "是什么", "怎么证明", "原理", "解释", "如何实现", "how", "why", "what is"]) { return .generalExplanation }
         return .other
