@@ -84,14 +84,22 @@ struct MemoryRetrievalConfiguration: Sendable, Equatable {
 protocol MemorySemanticEmbeddingResolving: Sendable {
     func descriptor(for text: String) async -> MemoryEmbeddingDescriptor?
     func embedding(for text: String) async throws -> MemoryEmbeddingVector
+    func prepareIfAvailable(for text: String) async
+}
+
+extension MemorySemanticEmbeddingResolving {
+    func prepareIfAvailable(for text: String) async {}
 }
 
 actor MemorySemanticEmbeddingResolver: MemorySemanticEmbeddingResolving {
-    @available(iOS 17.0, *) private lazy var contextual = NLContextualMemoryEmbeddingProvider()
+    @available(iOS 17.0, *) private var readyProviders: [String: NLContextualMemoryEmbeddingProvider] = [:]
+    private var preparingLanguages = Set<String>()
 
     func descriptor(for text: String) async -> MemoryEmbeddingDescriptor? {
         if #available(iOS 17.0, *) {
-            let contextualState = await contextual.prepare(for: text, requestAssetDownload: false)
+            let language = MemoryEmbeddingText.language(for: text).rawValue
+            guard let contextual = readyProviders[language] else { return nil }
+            let contextualState = await contextual.availability(for: text)
             if contextualState.hasAvailableAssets, contextualState.loaded {
                 return Self.descriptor(from: contextualState)
             }
@@ -101,10 +109,32 @@ actor MemorySemanticEmbeddingResolver: MemorySemanticEmbeddingResolving {
 
     func embedding(for text: String) async throws -> MemoryEmbeddingVector {
         if #available(iOS 17.0, *) {
-            let state = await contextual.prepare(for: text, requestAssetDownload: false)
+            let language = MemoryEmbeddingText.language(for: text).rawValue
+            guard let contextual = readyProviders[language] else {
+                throw MemoryEmbeddingError.providerUnavailable(language)
+            }
+            let state = await contextual.availability(for: text)
             if state.hasAvailableAssets, state.loaded { return try await contextual.embedding(for: text) }
         }
         throw MemoryEmbeddingError.providerUnavailable(MemoryEmbeddingText.language(for: text).rawValue)
+    }
+
+    func prepareIfAvailable(for text: String) async {
+        guard #available(iOS 17.0, *) else { return }
+        let language = MemoryEmbeddingText.language(for: text).rawValue
+        guard readyProviders[language] == nil,
+              preparingLanguages.insert(language).inserted
+        else { return }
+
+        // The candidate provider is deliberately not published until loading finishes.
+        // Because this actor is reentrant across the await, chat retrievals see "not ready"
+        // immediately and take the lexical/entity path instead of queueing behind model.load().
+        let candidate = NLContextualMemoryEmbeddingProvider()
+        let state = await candidate.prepare(for: text, requestAssetDownload: false)
+        if state.hasAvailableAssets, state.loaded {
+            readyProviders[language] = candidate
+        }
+        preparingLanguages.remove(language)
     }
 
     private static func descriptor(from state: MemoryEmbeddingAvailability) -> MemoryEmbeddingDescriptor? {
@@ -142,7 +172,16 @@ actor MemoryRetriever {
 
     func search(_ input: MemoryRetrievalInput, now: Date = Date()) async throws -> [MemoryRetrievalResult] {
         let records = try await store.retrievalRecords(scopeID: input.scopeID)
-        return await rank(input, records: records, now: now)
+        let results = await rank(input, records: records, now: now)
+        if let semanticResolver {
+            let text = input.combinedText
+            Task(priority: .utility) { await semanticResolver.prepareIfAvailable(for: text) }
+        }
+        return results
+    }
+
+    func prepareSemanticProviderIfAvailable(for text: String) async {
+        await semanticResolver?.prepareIfAvailable(for: text)
     }
 
     func rank(

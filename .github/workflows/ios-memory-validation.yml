@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           project_file="PersonalDeepSeek.xcodeproj/project.pbxproj"
-          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryStoreTests.swift; do
+          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryContext.swift MemoryContextTests.swift MemoryStoreTests.swift; do
             grep -q "$source" "$project_file"
           done
 
@@ -210,6 +210,6 @@ jobs:
               --path "$RUNNER_TEMP/MemoryValidation.xcresult" || true
           fi
           echo "Memory-related compiler diagnostics:"
-          grep -hE 'Memory(Models|Store|Service|StoreTests)\.swift:.*(warning|error):' \
+          grep -hE 'Memory(Models|Store|Service|Context|ContextTests|StoreTests)\.swift:.*(warning|error):' \
             "$RUNNER_TEMP/memory-build.log" \
             "$RUNNER_TEMP/memory-tests.log" 2>/dev/null || echo "none"

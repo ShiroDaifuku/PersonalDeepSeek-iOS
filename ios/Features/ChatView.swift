@@ -213,6 +213,15 @@ struct ChatView: View {
         if current == nil { createConversation() }; guard let conversation = current else { return }
         if selectedManualTool == .deepResearch { conversation.mode = "research" }
         let history = conversation.messages.sorted { $0.createdAt < $1.createdAt }
+        let retrievalContextText = MemoryRetrievalQueryContextBuilder.build(
+            from: history.map { .init(role: $0.role, content: $0.content) }
+        )
+        let memoryRetrievalInput = MemoryRetrievalInput(
+            primaryText: displayText,
+            contextText: retrievalContextText,
+            scopeID: MemoryScope.localDefault,
+            excludingConversationID: conversation.id
+        )
         let attachmentNames = attachments.map(\.name)
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation), assistant = ChatMessage(role: "assistant", conversation: conversation)
@@ -228,6 +237,13 @@ struct ChatView: View {
             var fullContent = ""
             var completedSuccessfully = false
             do {
+                try Task.checkCancellation()
+                // Exactly one immutable, fail-open Memory read is performed per send. The
+                // planner never sees it, and every later main-answer stage reuses this snapshot.
+                let retrievedMemoryContext = await memoryService.contextForChat(
+                    input: memoryRetrievalInput,
+                    currentUserText: displayText
+                )
                 try Task.checkCancellation()
                 let tasks = preferredTool == "edit_scheduled_task" ? ((try? await taskAPI?.list()) ?? []) : []
                 let calls: [AssistantToolCall]
@@ -269,7 +285,14 @@ struct ChatView: View {
                 else if !assistant.content.isEmpty { /* Immediate local tool result is already complete. */ }
                 else {
                     toolStatus = referenceSections.isEmpty ? "正在生成回答…" : "工具执行完成，正在整理回答…"
-                    let requestMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, knowledgeContext: referenceSections.joined(separator: "\n\n"), newUserText: requestText, imageDataURLs: imageDataURLs)
+                    let requestMessages = ChatRequestAssembler.messages(
+                        system: conversation.systemPrompt,
+                        history: history,
+                        knowledgeContext: referenceSections.joined(separator: "\n\n"),
+                        memoryContext: retrievedMemoryContext,
+                        newUserText: requestText,
+                        imageDataURLs: imageDataURLs
+                    )
                     var pendingReasoning = "", pendingContent = ""
                     var lastRender = Date.distantPast
                     for try await delta in APIClient().stream(messages: requestMessages, model: conversation.model, thinking: thinking, reasoningEffort: effort) {

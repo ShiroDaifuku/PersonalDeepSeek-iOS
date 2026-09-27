@@ -49,5 +49,8 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { notification in
             selectedTab = notification.userInfo?["task_id"] == nil && notification.userInfo?["taskId"] == nil ? "chat" : "tasks"
         }
+        .task(priority: .utility) {
+            await memoryService.prepareSemanticProviderIfAvailable()
+        }
     }
 }
