@@ -37,10 +37,10 @@ struct MemorySemanticConfidenceConfiguration: Codable, Sendable, Equatable {
     var epsilon: Double
 
     init(
-        minimumAbsoluteSemantic: Double = 0.78,
-        minimumTopMargin: Double = 0.055,
-        minimumMedianGap: Double = 0.10,
-        minimumRobustZ: Double = 3.0,
+        minimumAbsoluteSemantic: Double = 0.72,
+        minimumTopMargin: Double = 0.08,
+        minimumMedianGap: Double = 0.18,
+        minimumRobustZ: Double = 4.0,
         epsilon: Double = 0.000_001
     ) {
         self.minimumAbsoluteSemantic = minimumAbsoluteSemantic

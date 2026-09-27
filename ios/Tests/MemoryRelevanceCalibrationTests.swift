@@ -2,6 +2,14 @@ import XCTest
 @testable import PersonalDeepSeek
 
 final class MemoryRelevanceCalibrationTests: XCTestCase {
+    func testStep35CPhysicalDeviceCalibrationIsFrozenAsProductionDefault() {
+        let value = MemorySemanticConfidenceConfiguration()
+        XCTAssertEqual(value.minimumAbsoluteSemantic, 0.72, accuracy: 0.000_001)
+        XCTAssertEqual(value.minimumTopMargin, 0.08, accuracy: 0.000_001)
+        XCTAssertEqual(value.minimumMedianGap, 0.18, accuracy: 0.000_001)
+        XCTAssertEqual(value.minimumRobustZ, 4.0, accuracy: 0.000_001)
+    }
+
     func testRobustStatisticsUseWholeCandidateDistribution() throws {
         let value = try XCTUnwrap(MemorySemanticQueryStatistics.make(
             scores: [0.96, 0.82, 0.80, 0.78, 0.76], epsilon: 0.000_001
