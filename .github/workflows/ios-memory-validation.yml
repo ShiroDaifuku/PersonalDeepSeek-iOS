@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           project_file="PersonalDeepSeek.xcodeproj/project.pbxproj"
-          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryContext.swift MemoryContextTests.swift MemoryStoreTests.swift; do
+          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryContext.swift MemoryContextTests.swift MemoryStep4PerformanceTests.swift MemoryStoreTests.swift; do
             grep -q "$source" "$project_file"
           done
 
@@ -191,6 +191,7 @@ jobs:
           cp "$RUNNER_TEMP/memory-provider-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-retrieval-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-step3-migration.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-tests.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
 
       - name: Upload provider evaluation report
         if: always()

@@ -18,9 +18,10 @@ final class MemoryBehaviorRealEvaluationTests: XCTestCase {
         var records: [RealMemoryBehaviorRecord] = []
 
         for testCase in RealMemoryBehaviorCase.fixtures(now: now) {
+            let history = testCase.history.map { ChatMessage(role: $0.role, content: $0.content) }
             let baselineMessages = ChatRequestAssembler.messages(
                 system: RealMemoryBehaviorCase.systemPrompt,
-                history: [],
+                history: history,
                 memoryContext: nil,
                 newUserText: testCase.query
             )
@@ -31,7 +32,7 @@ final class MemoryBehaviorRealEvaluationTests: XCTestCase {
             ).context
             let memoryMessages = ChatRequestAssembler.messages(
                 system: RealMemoryBehaviorCase.systemPrompt,
-                history: [],
+                history: history,
                 memoryContext: memoryContext,
                 newUserText: testCase.query
             )
@@ -78,6 +79,19 @@ private struct RealMemoryBehaviorCase: Sendable {
     let required: [[String]]
     let forbidden: [String]
     let expectNoMemoryBlock: Bool
+
+    var history: [RealMemoryBehaviorHistoryMessage] {
+        [
+            .init(
+                role: "user",
+                content: "这是一次完全使用合成数据的连续对话测试。回答应当准确、直接、自然，并清楚区分当前用户要求、当前会话历史与可选背景数据。不要虚构日期、题号、身份、地点或用户没有提供的个人经历；如果背景信息与当前消息冲突，始终以当前消息为准。"
+            ),
+            .init(
+                role: "assistant",
+                content: "明白。我会把当前消息作为最高优先级，只使用确实相关且没有冲突的背景信息，并避免声称不存在的个人经历或来源。"
+            )
+        ]
+    }
 
     struct Assessment: Sendable { let passed: Bool; let notes: String }
 
@@ -167,6 +181,11 @@ private struct RealMemoryBehaviorCase: Sendable {
             lastConfirmedAt: now.addingTimeInterval(-86_400), expiresAt: nil
         )
     }
+}
+
+private struct RealMemoryBehaviorHistoryMessage: Sendable {
+    let role: String
+    let content: String
 }
 
 private struct RealMemoryBehaviorCompletion: Codable, Sendable {
