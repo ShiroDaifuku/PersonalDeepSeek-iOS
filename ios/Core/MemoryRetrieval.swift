@@ -251,22 +251,38 @@ actor MemoryRetriever {
             working.append(.init(item: item, lexical: lexical, entity: entity, semantic: semantic, eligibilityRejection: rejection))
         }
         let eligibleSemantic = working.compactMap { $0.eligibilityRejection == nil ? $0.semantic : nil }
-        let statistics = MemorySemanticQueryStatistics.make(
+        let unfilteredStatistics = MemorySemanticQueryStatistics.make(
             scores: eligibleSemantic, epsilon: configuration.semanticConfidence.epsilon
         )
-        let semanticTopID = working.filter { $0.eligibilityRejection == nil && $0.semantic != nil }.max {
+        // Usefulness is a candidate-eligibility boundary, not a post-ranking veto. Selecting the
+        // global semantic Top 1 first caused a high-scoring incompatible memory to suppress the
+        // next compatible candidate and turned safe personal queries into unnecessary abstentions.
+        let compatibleIDs = Set(working.filter {
+            guard $0.eligibilityRejection == nil else { return false }
+            return MemoryUsefulnessGate.evaluate(
+                kind: $0.item.kind,
+                query: query,
+                statistics: unfilteredStatistics,
+                configuration: configuration.semanticConfidence
+            ).kindCompatible
+        }.map { $0.item.id })
+        let compatibleSemantic = working.compactMap {
+            compatibleIDs.contains($0.item.id) ? $0.semantic : nil
+        }
+        let statistics = MemorySemanticQueryStatistics.make(
+            scores: compatibleSemantic, epsilon: configuration.semanticConfidence.epsilon
+        )
+        let semanticTopID = working.filter {
+            $0.eligibilityRejection == nil && compatibleIDs.contains($0.item.id) && $0.semantic != nil
+        }.max {
             ($0.semantic ?? 0) < ($1.semantic ?? 0)
         }?.item.id
         let lexicalIDs = Set(working.filter {
             guard $0.eligibilityRejection == nil,
+                  compatibleIDs.contains($0.item.id),
                   max($0.lexical, $0.entity ? 1 : 0) >= configuration.lexicalGate
             else { return false }
-            return MemoryUsefulnessGate.evaluate(
-                kind: $0.item.kind,
-                query: query,
-                statistics: statistics,
-                configuration: configuration.semanticConfidence
-            ).kindCompatible
+            return true
         }.sorted {
             max($0.lexical, $0.entity ? 1 : 0) > max($1.lexical, $1.entity ? 1 : 0)
         }.prefix(max(0, configuration.maximumLexicalResults)).map { $0.item.id })
@@ -281,7 +297,10 @@ actor MemoryRetriever {
             if let rejection = value.eligibilityRejection { reasons.append(rejection) }
             let lexicalAccepted = value.eligibilityRejection == nil && lexicalIDs.contains(value.item.id)
             var semanticAccepted = false
-            if value.eligibilityRejection == nil, let semantic = value.semantic, let statistics {
+            if value.eligibilityRejection == nil,
+               compatibleIDs.contains(value.item.id),
+               let semantic = value.semantic,
+               let statistics {
                 if value.item.id != semanticTopID { reasons.append(.notTopSemanticCandidate) }
                 else {
                     if semantic < configuration.semanticConfidence.minimumAbsoluteSemantic { reasons.append(.belowAbsoluteSemantic) }
@@ -295,12 +314,12 @@ actor MemoryRetriever {
                     if !usefulness.kindCompatible { reasons.append(.intentKindIncompatible) }
                     semanticAccepted = reasons.isEmpty
                 }
-            } else if value.eligibilityRejection == nil {
+            } else if value.eligibilityRejection == nil && compatibleIDs.contains(value.item.id) {
                 reasons.append(.staleEmbedding)
             }
             if value.eligibilityRejection == nil,
                max(value.lexical, value.entity ? 1 : 0) >= configuration.lexicalGate,
-               !usefulness.kindCompatible {
+               !compatibleIDs.contains(value.item.id) {
                 reasons.append(.intentKindIncompatible)
             }
             if !lexicalAccepted && value.eligibilityRejection == nil && !semanticAccepted &&

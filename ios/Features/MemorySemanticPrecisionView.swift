@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class MemorySemanticPrecisionViewModel: ObservableObject {
     @Published var running = false
-    @Published var status = "Development 80 条 + Held-out 50 条；只在真机运行。"
+    @Published var status = "Step 3.5C：Development 130 条 + 全新 Held-out 50 条；只在真机运行。"
     @Published var artifacts: MemorySemanticPrecisionArtifacts?
 
     func run() {
@@ -25,7 +25,7 @@ struct MemorySemanticPrecisionView: View {
     @StateObject private var model = MemorySemanticPrecisionViewModel()
     var body: some View {
         Form {
-            Section("Step 3.5B") {
+            Section("Step 3.5C") {
                 Text("只使用合成数据。Held-out 参数在 Development 调优完成后冻结，并且只评测一次。")
                     .font(.caption).foregroundStyle(.secondary)
                 Button(model.running ? "评测中…" : "运行 Precision Tuning") { model.run() }.disabled(model.running)

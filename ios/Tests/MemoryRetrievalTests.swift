@@ -89,6 +89,47 @@ final class MemoryRetrievalTests: XCTestCase {
         XCTAssertEqual(recommendation.first?.memoryID, preference.id)
     }
 
+    func testSemanticRankingSelectsBestCompatibleCandidateInsteadOfVetoingGlobalTopOne() async throws {
+        let store = MemoryStore(modelContainer: try makeContainer())
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let descriptor = TestSemanticResolver.descriptor
+        let incompatible = try await insert(
+            store,
+            kind: .ongoingContext,
+            text: "用户正在制作一个电影推荐项目",
+            embedding: try envelope([1, 0], descriptor: descriptor, text: "用户正在制作一个电影推荐项目"),
+            now: now
+        )
+        let target = try await insert(
+            store,
+            kind: .preference,
+            text: "用户偏好节奏紧凑、智斗多、结局难猜的电影",
+            embedding: try envelope([0.98, 0.20], descriptor: descriptor, text: "用户偏好节奏紧凑、智斗多、结局难猜的电影"),
+            now: now
+        )
+        _ = try await insert(
+            store,
+            kind: .preference,
+            text: "用户偏好舒缓的纯音乐",
+            embedding: try envelope([0.60, 0.80], descriptor: descriptor, text: "用户偏好舒缓的纯音乐"),
+            now: now
+        )
+        let retriever = MemoryRetriever(store: store, semanticResolver: TestSemanticResolver())
+        let input = MemoryRetrievalInput(primaryText: "帮我找一部开局快、人物不断博弈的反转片")
+
+        let result = try await retriever.search(input, now: now)
+        XCTAssertEqual(result.first?.memoryID, target.id)
+        XCTAssertFalse(result.contains { $0.memoryID == incompatible.id })
+
+        let evaluations = await retriever.evaluateCandidates(
+            input,
+            records: try await store.retrievalRecords(scopeID: MemoryScope.localDefault),
+            now: now
+        )
+        XCTAssertEqual(evaluations.first(where: { $0.memoryID == target.id })?.acceptedBySemanticPath, true)
+        XCTAssertEqual(evaluations.first(where: { $0.memoryID == incompatible.id })?.kindCompatible, false)
+    }
+
     func testContextTextResolvesFollowUpAndConversationExclusionUsesAllSources() async throws {
         let store = MemoryStore(modelContainer: try makeContainer())
         let now = Date(timeIntervalSince1970: 1_900_000_000)

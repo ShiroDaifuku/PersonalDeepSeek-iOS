@@ -111,7 +111,9 @@ actor MemorySemanticPrecisionEvaluator {
         let leakage = try await validateLeakage(provider: provider)
         let hybrid = heldOut.modes.first { $0.name == "Production hybrid" }!.metrics
         let decision = hybrid.falseRetrievalRate <= 0.05 && hybrid.noResultAccuracy >= 0.95 &&
-            hybrid.precisionAt1 >= 0.95 ? "PASS — semantic retrieval sufficiently precise" : "TUNE"
+            hybrid.precisionAt1 >= 0.95 && hybrid.recallAt1 >= 0.60 &&
+            hybrid.lowOverlapRecall >= 0.55 && hybrid.nearTopicNegativeAccuracy >= 0.95
+            ? "PASS — precision and useful recall meet the Step 3.5C gate" : "TUNE"
         let deviceInfo = await Self.deviceInfo()
         let report = MemorySemanticPrecisionReport(
             generatedAt: Date(), device: deviceInfo.0, systemVersion: deviceInfo.1,
@@ -167,10 +169,10 @@ actor MemorySemanticPrecisionEvaluator {
 
     private func tune(_ development: [PreparedQuery]) -> MemorySemanticPrecisionReport.Parameters {
         var best: (MemorySemanticPrecisionReport.Parameters, MemorySemanticPrecisionReport.Metrics)?
-        for absolute in [0.72, 0.76, 0.80, 0.84, 0.88, 0.90, 0.92, 0.94] {
-            for margin in [0.02, 0.04, 0.06, 0.08, 0.10, 0.12] {
-                for gap in [0.06, 0.10, 0.14, 0.18, 0.22] {
-                    for robustZ in [2.0, 3.0, 4.0, 5.0, 6.0] {
+        for absolute in [0.60, 0.64, 0.68, 0.72, 0.76, 0.80, 0.84] {
+            for margin in [0.00, 0.02, 0.04, 0.06, 0.08, 0.10] {
+                for gap in [0.00, 0.06, 0.10, 0.14, 0.18] {
+                    for robustZ in [0.0, 2.0, 3.0, 4.0, 5.0] {
                         let candidate = MemorySemanticPrecisionReport.Parameters(
                             minimumAbsoluteSemantic: absolute, minimumTopMargin: margin,
                             minimumMedianGap: gap, minimumRobustZ: robustZ,
@@ -191,9 +193,14 @@ actor MemorySemanticPrecisionEvaluator {
         than current: MemorySemanticPrecisionReport.Metrics?
     ) -> Bool {
         guard let current else { return true }
-        let valuePass = value.falseRetrievalRate <= 0.05 && value.noResultAccuracy >= 0.95 && value.precisionAt1 >= 0.95
-        let currentPass = current.falseRetrievalRate <= 0.05 && current.noResultAccuracy >= 0.95 && current.precisionAt1 >= 0.95
-        if valuePass != currentPass { return valuePass }
+        let valueSafe = value.falseRetrievalRate <= 0.05 && value.noResultAccuracy >= 0.95 &&
+            value.precisionAt1 >= 0.95 && value.nearTopicNegativeAccuracy >= 0.95
+        let currentSafe = current.falseRetrievalRate <= 0.05 && current.noResultAccuracy >= 0.95 &&
+            current.precisionAt1 >= 0.95 && current.nearTopicNegativeAccuracy >= 0.95
+        let valueReady = valueSafe && value.recallAt1 >= 0.60 && value.lowOverlapRecall >= 0.55
+        let currentReady = currentSafe && current.recallAt1 >= 0.60 && current.lowOverlapRecall >= 0.55
+        if valueReady != currentReady { return valueReady }
+        if valueSafe != currentSafe { return valueSafe }
         if value.falseRetrievalRate != current.falseRetrievalRate { return value.falseRetrievalRate < current.falseRetrievalRate }
         if value.precisionAt1 != current.precisionAt1 { return value.precisionAt1 > current.precisionAt1 }
         if value.lowOverlapRecall != current.lowOverlapRecall { return value.lowOverlapRecall > current.lowOverlapRecall }
@@ -222,40 +229,48 @@ actor MemorySemanticPrecisionEvaluator {
     ) -> MemorySemanticPrecisionReport.Mode {
         var queryResults: [MemorySemanticPrecisionReport.QueryResult] = []
         for value in values {
-            let sorted = value.rows.sorted { $0.semantic > $1.semantic }
-            let topID = sorted.first?.memory.id
-            let lexical = value.rows.sorted { max($0.lexical, $0.entity ? 1 : 0) > max($1.lexical, $1.entity ? 1 : 0) }
-                .first {
-                    max($0.lexical, $0.entity ? 1 : 0) >= parameters.lexicalThreshold &&
-                    usefulness($0, query: value.benchmark, statistics: value.statistics, parameters: parameters).kindCompatible
-                }
-            let semantic = sorted.first.flatMap { row -> PreparedRow? in
-                let usefulness = usefulness(row, query: value.benchmark, statistics: value.statistics, parameters: parameters)
-                return semanticAccepted(row, usefulness: usefulness, statistics: value.statistics, parameters: parameters) ? row : nil
+            let allSorted = value.rows.sorted { $0.semantic > $1.semantic }
+            let compatible = allSorted.filter {
+                usefulness($0, query: value.benchmark, statistics: value.statistics, parameters: parameters).kindCompatible
+            }
+            let compatibleStatistics = MemorySemanticQueryStatistics.make(
+                scores: compatible.map(\.semantic), epsilon: 0.000_001
+            )
+            let reportedStatistics = compatibleStatistics ?? value.statistics
+            let topID = compatible.first?.memory.id
+            let lexical = compatible.sorted {
+                max($0.lexical, $0.entity ? 1 : 0) > max($1.lexical, $1.entity ? 1 : 0)
+            }.first {
+                max($0.lexical, $0.entity ? 1 : 0) >= parameters.lexicalThreshold
+            }
+            let semantic = compatible.first.flatMap { row -> PreparedRow? in
+                let usefulness = usefulness(row, query: value.benchmark, statistics: reportedStatistics, parameters: parameters)
+                guard let compatibleStatistics else { return nil }
+                return semanticAccepted(row, usefulness: usefulness, statistics: compatibleStatistics, parameters: parameters) ? row : nil
             }
             let returned: [UUID]
             switch mode {
             case .lexical: returned = lexical.map { [$0.memory.id] } ?? []
-            case .rawSemantic: returned = sorted.first.map { $0.semantic >= 0.58 ? [$0.memory.id] : [] } ?? []
+            case .rawSemantic: returned = allSorted.first.map { $0.semantic >= 0.58 ? [$0.memory.id] : [] } ?? []
             case .calibrated: returned = semantic.map { [$0.memory.id] } ?? []
             case .hybrid:
                 returned = Array([lexical?.memory.id, semantic?.memory.id].compactMap { $0 }.reduce(into: [UUID]()) {
                     if !$0.contains($1) { $0.append($1) }
                 }.prefix(parameters.maxTotalResults))
             }
-            let candidates = sorted.prefix(5).map { row -> MemorySemanticPrecisionReport.Candidate in
-                let usefulness = usefulness(row, query: value.benchmark, statistics: value.statistics, parameters: parameters)
+            let candidates = allSorted.prefix(5).map { row -> MemorySemanticPrecisionReport.Candidate in
+                let usefulness = usefulness(row, query: value.benchmark, statistics: reportedStatistics, parameters: parameters)
                 var reasons: [MemoryCandidateRejectionReason] = []
-                if row.memory.id != topID { reasons.append(.notTopSemanticCandidate) }
+                if usefulness.kindCompatible && row.memory.id != topID { reasons.append(.notTopSemanticCandidate) }
                 if row.semantic < parameters.minimumAbsoluteSemantic { reasons.append(.belowAbsoluteSemantic) }
-                let distribution = value.statistics.top1Top2Margin >= parameters.minimumTopMargin ||
-                    value.statistics.top1MedianGap >= parameters.minimumMedianGap || value.statistics.robustZ >= parameters.minimumRobustZ
+                let distribution = reportedStatistics.top1Top2Margin >= parameters.minimumTopMargin ||
+                    reportedStatistics.top1MedianGap >= parameters.minimumMedianGap || reportedStatistics.robustZ >= parameters.minimumRobustZ
                 if !distribution { reasons += [.insufficientMargin, .insufficientDistributionGap] }
                 if !usefulness.kindCompatible { reasons.append(.intentKindIncompatible) }
                 let accepted = returned.contains(row.memory.id)
                 return .init(memoryID: row.memory.id, kind: row.memory.kind, semanticScore: row.semantic,
-                             lexicalScore: row.lexical, top1Margin: value.statistics.top1Top2Margin,
-                             medianGap: value.statistics.top1MedianGap, robustZ: value.statistics.robustZ,
+                             lexicalScore: row.lexical, top1Margin: reportedStatistics.top1Top2Margin,
+                             medianGap: reportedStatistics.top1MedianGap, robustZ: reportedStatistics.robustZ,
                              queryIntent: usefulness.intent, kindCompatible: usefulness.kindCompatible,
                              accepted: accepted, rejectionReasons: accepted ? [] : reasons)
             }
@@ -376,7 +391,7 @@ actor MemorySemanticPrecisionEvaluator {
         }
 
         return """
-        # Step 3.5B Semantic Precision Tuning Report
+        # Step 3.5C Semantic Precision Tuning Report
 
         ## A. Provider
 
@@ -575,7 +590,13 @@ private enum PrecisionBenchmark {
         memory(19, .preference, "用户偏好使用 SwiftUI 构建原生界面。"),
         memory(20, .ongoingContext, "用户使用 Cloudflare Workers 执行云端定时任务。")
     ]
-    static let fixture = (memories: memories, development: makeDevelopment(), heldOut: makeHeldOut())
+    // The original held-out set was opened during Step 3.5B diagnosis. It is now development
+    // evidence only; Step 3.5C uses a fresh held-out set that is embedded after parameters freeze.
+    static let fixture = (
+        memories: memories,
+        development: makeDevelopment() + makeHeldOut(),
+        heldOut: makeHeldOutV2()
+    )
     static var summary: (development: Int, developmentNegatives: Int, heldOut: Int, heldOutNegatives: Int) {
         (fixture.development.count, fixture.development.filter { $0.expected == nil }.count,
          fixture.heldOut.count, fixture.heldOut.filter { $0.expected == nil }.count)
@@ -670,6 +691,64 @@ private enum PrecisionBenchmark {
         ]
         return positives + negatives
     }
+
+    private static func makeHeldOutV2() -> [PrecisionQuery] {
+        let positives: [PrecisionQuery] = [
+            positive("c01","movie","帮我找一部开局快、人物不断博弈的反转电影。",1),
+            positive("c02","math-event","先前说过谱相同仍不能推出相似，关键缺了什么？",2),
+            positive("c03","device","我的电脑调用高性能图形处理器时会闪黑，排查要结合什么配置？",3),
+            positive("c04","project","现有掌上 AI 客户端的长期记忆检索应该接在哪一层？",4),
+            positive("c05","movie","我会喜欢一开始铺垫很久的电影吗？",5),
+            positive("c06","learning","延续最近的复习状态，下一项线性代数内容是什么？",6),
+            positive("c07","privacy","按我的要求设计个人笔记检索时，资料应该留在哪里？",7),
+            positive("c08","pet","根据我家宠物的情况安排一次护理检查。",8),
+            positive("c09","drink","按我的晨间口味选一杯不甜的咖啡饮品。",9),
+            positive("c10","travel","继续安排我秋天那趟东京二次元街区行程。",10),
+            positive("c11","format","用我习惯的数学排版方式展示这组公式。",11),
+            positive("c12","diet","根据我的饮食偏好判断这家全是肉食的餐厅是否合适。",12),
+            positive("c13","allergy","这份饼干含花生，我能不能吃？",13,false),
+            positive("c14","style","按我喜欢的回答结构直接给结论。",14),
+            positive("c15","timezone","根据我的常用时区建立每天八点的任务。",15),
+            positive("c16","fitness","接着调整我每周两次晚间运动的计划。",16),
+            positive("c17","music","想挑一些符合我日语音乐口味的通勤歌曲。",17),
+            positive("c18","shopping","按我之前的预算找一副头戴降噪耳机。",18),
+            positive("c19","ui","继续按我的技术偏好决定这个 iPhone 项目的 UI 框架。",19),
+            positive("c20","cloud","现有云端任务怎样保证手机离线后仍按时运行？",20),
+            positive("c21","math-event","接着解释两个矩阵特征值一致却未必相似。",2),
+            positive("c22","project","我的项目下一步如何组织跨对话记忆状态？",4),
+            positive("c23","movie","想挑一部不用等很久就进入主线的片子。",5),
+            positive("c24","privacy","符合我隐私要求的本地知识增强应该怎样部署？",7),
+            positive("c25","device","我的笔记本独显介入时屏幕短暂熄灭，怎么排查？",3)
+        ]
+        let negatives: [PrecisionQuery] = [
+            negative("cn01","math-geometry","高斯曲率的几何意义是什么？"),
+            negative("cn02","math-statistics","最大似然估计为什么具有渐近正态性？"),
+            negative("cn03","math-number","欧拉函数有哪些常用性质？"),
+            negative("cn04","math-logic","哥德尔不完备定理说明了什么？"),
+            negative("cn05","dev-flutter","Flutter 的渲染管线如何工作？"),
+            negative("cn06","dev-rust","Rust 的所有权系统怎样避免数据竞争？"),
+            negative("cn07","dev-java","Java 虚拟机如何进行垃圾回收？"),
+            negative("cn08","device-fact","独立显卡和集成显卡有什么区别？"),
+            negative("cn09","movie-fact","《七宗罪》的编剧是谁？"),
+            negative("cn10","movie-fact","某部电影在威尼斯电影节获得了什么奖？"),
+            negative("cn11","movie-history","黑色电影这一类型起源于哪个年代？"),
+            negative("cn12","music-fact","Aimer 的出道单曲叫什么？"),
+            negative("cn13","music-fact","YOASOBI 的组合名称是什么意思？"),
+            negative("cn14","music-fact","这张唱片首周销量是多少？"),
+            negative("cn15","audio-fact","平板振膜耳机的发声原理是什么？"),
+            negative("cn16","travel-fact","东京成田机场有几条跑道？"),
+            negative("cn17","pet-fact","猫为什么能够在夜间看清物体？"),
+            negative("cn18","coffee-fact","手冲咖啡闷蒸阶段有什么作用？"),
+            negative("cn19","food-fact","人体如何吸收维生素 B12？"),
+            negative("cn20","timezone-fact","国际日期变更线为什么不是直线？"),
+            negative("cn21","running-fact","有氧阈和乳酸阈有什么区别？"),
+            negative("cn22","cloud-fact","边缘计算与传统云计算有什么区别？"),
+            negative("cn23","ios-fact","SwiftUI 的环境值如何向下传递？"),
+            negative("cn24","privacy-fact","差分隐私中的 epsilon 表示什么？"),
+            negative("cn25","general","月球表面重力是多少？",near: false)
+        ]
+        return positives + negatives
+    }
 }
 
 enum MemorySemanticPrecisionTestHooks {
@@ -682,7 +761,7 @@ private enum PrecisionEvaluationError: LocalizedError {
     case physicalDeviceRequired, iOS17Required, contextualUnavailable(String), emptyScores
     var errorDescription: String? {
         switch self {
-        case .physicalDeviceRequired: "必须在真实 iPhone 上运行 Step 3.5B。"
+        case .physicalDeviceRequired: "必须在真实 iPhone 上运行 Step 3.5C。"
         case .iOS17Required: "NLContextualEmbedding 需要 iOS 17 或更高版本。"
         case .contextualUnavailable(let detail): "Contextual assets 不可用：\(detail)"
         case .emptyScores: "未生成 semantic score。"
