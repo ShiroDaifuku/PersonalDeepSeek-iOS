@@ -173,7 +173,7 @@ actor UserProfileManager {
 
         let focusCandidates = eligible.filter { item in
             let age = ageDays(item, now: now)
-            switch item.kind {
+            return switch item.kind {
             case .ongoingContext: age <= configuration.ongoingFocusWindowDays
             case .recentState, .event, .preference, .durableFact: age <= configuration.recentFocusWindowDays
             case .other: false
