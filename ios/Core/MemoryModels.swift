@@ -39,25 +39,48 @@ enum MemoryScore {
     }
 }
 
+enum MemoryReinforcementSaturation {
+    static let defaultK = 0.55
+
+    static func score(count: Int, k: Double = defaultK) -> Double {
+        1 - exp(-k * Double(max(0, count)))
+    }
+}
+
+struct ProfileEntry: Codable, Sendable, Equatable {
+    var text: String
+    var sourceMemoryIDs: [UUID]
+    var lastConfirmedAt: Date
+}
+
 struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     var schemaVersion: Int
-    var durable: [String]
-    var preferences: [String]
-    var ongoing: [String]
-    var recentState: [String]
-    var recentFocus: [String]
+    var generatedAt: Date
+    var sourceDigest: String
+    var nextRefreshAt: Date?
+    var durable: [ProfileEntry]
+    var preferences: [ProfileEntry]
+    var ongoing: [ProfileEntry]
+    var recentState: [ProfileEntry]
+    var recentFocus: [ProfileEntry]
 
     init(
         schemaVersion: Int = Self.currentSchemaVersion,
-        durable: [String] = [],
-        preferences: [String] = [],
-        ongoing: [String] = [],
-        recentState: [String] = [],
-        recentFocus: [String] = []
+        generatedAt: Date = Date(timeIntervalSince1970: 0),
+        sourceDigest: String = "uninitialized",
+        nextRefreshAt: Date? = nil,
+        durable: [ProfileEntry] = [],
+        preferences: [ProfileEntry] = [],
+        ongoing: [ProfileEntry] = [],
+        recentState: [ProfileEntry] = [],
+        recentFocus: [ProfileEntry] = []
     ) {
         self.schemaVersion = schemaVersion
+        self.generatedAt = generatedAt
+        self.sourceDigest = sourceDigest
+        self.nextRefreshAt = nextRefreshAt
         self.durable = durable
         self.preferences = preferences
         self.ongoing = ongoing
@@ -66,6 +89,40 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
     }
 
     static let empty = UserMemoryProfilePayload()
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, generatedAt, sourceDigest, nextRefreshAt
+        case durable, preferences, ongoing, recentState, recentFocus
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        if version == 1 {
+            // v1 strings were never authoritative. Deliberately discard them so the manager
+            // rebuilds exclusively from current active MemoryItems.
+            self.init(sourceDigest: "legacy-v1-untrusted")
+            return
+        }
+        guard version == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: values,
+                debugDescription: "Unsupported profile payload schema \(version)"
+            )
+        }
+        self.init(
+            schemaVersion: version,
+            generatedAt: try values.decode(Date.self, forKey: .generatedAt),
+            sourceDigest: try values.decode(String.self, forKey: .sourceDigest),
+            nextRefreshAt: try values.decodeIfPresent(Date.self, forKey: .nextRefreshAt),
+            durable: try values.decode([ProfileEntry].self, forKey: .durable),
+            preferences: try values.decode([ProfileEntry].self, forKey: .preferences),
+            ongoing: try values.decode([ProfileEntry].self, forKey: .ongoing),
+            recentState: try values.decode([ProfileEntry].self, forKey: .recentState),
+            recentFocus: try values.decode([ProfileEntry].self, forKey: .recentFocus)
+        )
+    }
 }
 
 @Model final class UserMemoryProfile {

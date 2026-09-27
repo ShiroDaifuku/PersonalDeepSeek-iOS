@@ -9,11 +9,13 @@ final class MemoryStoreTests: XCTestCase {
         let values: [UserMemoryProfilePayload] = [
             .empty,
             .init(
-                durable: ["durable"],
-                preferences: ["preference"],
-                ongoing: ["ongoing"],
-                recentState: ["state"],
-                recentFocus: ["focus"]
+                generatedAt: Date(timeIntervalSince1970: 1_000),
+                sourceDigest: "digest",
+                durable: [entry("durable")],
+                preferences: [entry("preference")],
+                ongoing: [entry("ongoing")],
+                recentState: [entry("state")],
+                recentFocus: [entry("focus")]
             )
         ]
         for value in values {
@@ -42,8 +44,8 @@ final class MemoryStoreTests: XCTestCase {
         let reloaded = try await readProfile(from: location.store)
         XCTAssertEqual(reloaded.scopeID, MemoryScope.localDefault)
         XCTAssertEqual(reloaded.revision, 1)
-        XCTAssertEqual(reloaded.payload.preferences, ["prefers concise answers"])
-        XCTAssertEqual(reloaded.payload.recentFocus, ["memory design"])
+        XCTAssertEqual(reloaded.payload.preferences.map(\.text), ["prefers concise answers"])
+        XCTAssertEqual(reloaded.payload.recentFocus.map(\.text), ["memory design"])
     }
 
     func testEmptyProfilePersistsAcrossContainerReload() async throws {
@@ -230,12 +232,12 @@ final class MemoryStoreTests: XCTestCase {
         let revisionOne = try await store.updateProfile(
             scopeID: MemoryScope.localDefault,
             expectedRevision: initial.revision,
-            payload: .init(durable: ["one"])
+            payload: .init(durable: [Self.entry("one")])
         )
         let revisionTwo = try await store.updateProfile(
             scopeID: MemoryScope.localDefault,
             expectedRevision: revisionOne.revision,
-            payload: .init(durable: ["two"])
+            payload: .init(durable: [Self.entry("two")])
         )
         let readerA = revisionTwo
         let readerB = revisionTwo
@@ -243,7 +245,7 @@ final class MemoryStoreTests: XCTestCase {
         let revisionThree = try await store.updateProfile(
             scopeID: MemoryScope.localDefault,
             expectedRevision: readerB.revision,
-            payload: .init(durable: ["writer B"])
+            payload: .init(durable: [Self.entry("writer B")])
         )
         XCTAssertEqual(revisionThree.revision, 3)
 
@@ -251,7 +253,7 @@ final class MemoryStoreTests: XCTestCase {
             _ = try await store.updateProfile(
                 scopeID: MemoryScope.localDefault,
                 expectedRevision: readerA.revision,
-                payload: .init(durable: ["stale writer A"])
+                payload: .init(durable: [Self.entry("stale writer A")])
             )
             XCTFail("Expected revision conflict")
         } catch let error as MemoryError {
@@ -260,7 +262,7 @@ final class MemoryStoreTests: XCTestCase {
 
         let optionalFinal = try await store.profile(scopeID: MemoryScope.localDefault)
         let final = try XCTUnwrap(optionalFinal)
-        XCTAssertEqual(final.payload.durable, ["writer B"])
+        XCTAssertEqual(final.payload.durable.map(\.text), ["writer B"])
         XCTAssertEqual(final.revision, 3)
     }
 
@@ -430,7 +432,10 @@ final class MemoryStoreTests: XCTestCase {
         _ = try await store.updateProfile(
             scopeID: MemoryScope.localDefault,
             expectedRevision: initial.revision,
-            payload: .init(preferences: ["prefers concise answers"], recentFocus: ["memory design"])
+            payload: .init(
+                preferences: [Self.entry("prefers concise answers")],
+                recentFocus: [Self.entry("memory design")]
+            )
         )
     }
 
@@ -465,5 +470,13 @@ final class MemoryStoreTests: XCTestCase {
                 draft: source
             )
         }
+    }
+
+    private static func entry(_ text: String) -> ProfileEntry {
+        .init(
+            text: text,
+            sourceMemoryIDs: [UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!],
+            lastConfirmedAt: Date(timeIntervalSince1970: 1_000)
+        )
     }
 }

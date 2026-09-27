@@ -223,7 +223,10 @@ actor MemoryRetriever {
             }
             let ageDays = max(0, now.timeIntervalSince(item.lastConfirmedAt) / 86_400)
             let recency = exp(-log(2) * ageDays / configuration.halfLifeDays(for: item.kind))
-            let reinforcement = 1 - exp(-configuration.reinforcementK * Double(max(0, item.reinforcementCount)))
+            let reinforcement = MemoryReinforcementSaturation.score(
+                count: item.reinforcementCount,
+                k: configuration.reinforcementK
+            )
             let importance = MemoryScore.clamped(item.importance)
             let final = clamp(
                 configuration.relevanceWeight * relevance +

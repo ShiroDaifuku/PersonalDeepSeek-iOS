@@ -385,7 +385,7 @@ final class MemoryStep2Tests: XCTestCase {
         context.insert(conversation)
         context.insert(ChatMessage(role: "user", content: "Preserved user", conversation: conversation))
         context.insert(ChatMessage(role: "assistant", content: "Preserved assistant", conversation: conversation))
-        let profileData = try JSONEncoder().encode(UserMemoryProfilePayload(preferences: ["preserved"]))
+        let profileData = Data(#"{"schemaVersion":1,"durable":[],"preferences":["preserved"],"ongoing":[],"recentState":[],"recentFocus":[]}"#.utf8)
         context.insert(UserMemoryProfile(scopeID: MemoryScope.localDefault, profileData: profileData))
         let item = MemoryItem(
             scopeID: MemoryScope.localDefault,

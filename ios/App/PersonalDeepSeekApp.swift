@@ -52,5 +52,8 @@ struct RootView: View {
         .task(priority: .utility) {
             await memoryService.prepareSemanticProviderIfAvailable()
         }
+        .task(priority: .utility) {
+            await memoryService.refreshUserProfileIfNeeded()
+        }
     }
 }

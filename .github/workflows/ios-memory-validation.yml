@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           project_file="PersonalDeepSeek.xcodeproj/project.pbxproj"
-          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryContext.swift MemoryContextTests.swift MemoryStep4PerformanceTests.swift MemoryStoreTests.swift; do
+          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryContext.swift UserProfileManager.swift MemoryContextTests.swift MemoryStep4PerformanceTests.swift MemoryStoreTests.swift UserProfileManagerTests.swift UserProfilePerformanceTests.swift; do
             grep -q "$source" "$project_file"
           done
 
@@ -188,6 +188,9 @@ jobs:
             \( -name 'memory-provider-evaluation.json' -o -name 'memory-provider-evaluation.md' \
                -o -name 'memory-retrieval-evaluation.json' -o -name 'memory-retrieval-evaluation.md' \) \
             -exec cp {} "$RUNNER_TEMP/memory-provider-evaluation/" \; 2>/dev/null || true
+          find "$simulator_root" -type f \
+            \( -name 'user-profile-performance.json' -o -name 'user-profile-performance.md' \) \
+            -exec cp {} "$RUNNER_TEMP/memory-provider-evaluation/" \; 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-provider-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-retrieval-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-step3-migration.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
@@ -211,6 +214,6 @@ jobs:
               --path "$RUNNER_TEMP/MemoryValidation.xcresult" || true
           fi
           echo "Memory-related compiler diagnostics:"
-          grep -hE 'Memory(Models|Store|Service|Context|ContextTests|StoreTests)\.swift:.*(warning|error):' \
+          grep -hE '(Memory(Models|Store|Service|Context|ContextTests|StoreTests)|UserProfile(Manager|ManagerTests|PerformanceTests))\.swift:.*(warning|error):' \
             "$RUNNER_TEMP/memory-build.log" \
             "$RUNNER_TEMP/memory-tests.log" 2>/dev/null || echo "none"

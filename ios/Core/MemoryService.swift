@@ -14,6 +14,7 @@ final class MemoryService: MemoryServing, Sendable {
     private let retriever: MemoryRetriever
     private let embeddingBackfill: MemoryEmbeddingBackfillService
     private let chatReadPipeline: MemoryChatReadPipeline
+    private let profileManager: UserProfileManager
 
     init(store: MemoryStore, processor: MemoryProcessor) {
         self.store = store
@@ -21,6 +22,7 @@ final class MemoryService: MemoryServing, Sendable {
         retriever = MemoryRetriever(store: store)
         embeddingBackfill = MemoryEmbeddingBackfillService(store: store)
         chatReadPipeline = MemoryChatReadPipeline(retriever: retriever)
+        profileManager = UserProfileManager(store: store)
     }
 
     convenience init(modelContainer: ModelContainer, extractor: any MemoryExtracting = MemoryExtractionClient()) {
@@ -29,7 +31,7 @@ final class MemoryService: MemoryServing, Sendable {
     }
 
     func getUserProfile(scopeID: String = MemoryScope.localDefault) async throws -> UserMemoryProfileSnapshot {
-        try await store.getOrCreateProfile(scopeID: scopeID)
+        try await profileManager.profileSnapshot(scopeID: scopeID)
     }
 
     func listMemories(scopeID: String = MemoryScope.localDefault) async throws -> [MemoryItemSnapshot] {
@@ -83,6 +85,23 @@ final class MemoryService: MemoryServing, Sendable {
     }
 
     func processCompletedTurn(_ turn: CompletedTurnSnapshot) async -> MemoryProcessingResult {
-        await processor.processCompletedTurn(turn)
+        let result = await processor.processCompletedTurn(turn)
+        if case .processed(let operationCount, _) = result, operationCount > 0 {
+            let manager = profileManager
+            let scopeID = turn.scopeID
+            Task(priority: .utility) {
+                // Profile is auxiliary: refresh failures never change the completed Memory write
+                // result and never enter the normal chat error path.
+                _ = try? await manager.refreshIfNeeded(scopeID: scopeID)
+            }
+        }
+        return result
+    }
+
+    func refreshUserProfileIfNeeded(
+        scopeID: String = MemoryScope.localDefault,
+        now: Date = Date()
+    ) async {
+        _ = try? await profileManager.refreshIfNeeded(scopeID: scopeID, now: now)
     }
 }

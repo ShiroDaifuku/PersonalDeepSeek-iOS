@@ -465,4 +465,18 @@ enum MemoryEvidenceFilter {
         let firstPersonClaimWords = ["喜欢", "不喜欢", "看不下去", "正在", "在做", "复习", "用的是", "已经", "学完", "做完", "完成", "开始"]
         return userText.contains("我") && firstPersonClaimWords.contains(where: userText.contains)
     }
+
+    /// Defense-in-depth for already-persisted data. Profile derivation never treats text as
+    /// instructions, and excludes sensitive values even if a malformed/synthetic row bypassed
+    /// extraction validation.
+    static func allowsProfileText(_ canonicalText: String) -> Bool {
+        let value = canonicalText.lowercased()
+        let blocked = [
+            "api key", "apikey", "sk-", "密码", "password", "验证码", "verification code",
+            "auth token", "access token", "bearer ", "银行卡", "银行卡号", "银行账户", "账户密码",
+            "住址是", "地址是", "家庭住址", "确诊", "诊断", "症状", "性生活", "政治立场",
+            "宗教身份", "种族", "民族身份", "犯罪记录", "实时位置"
+        ]
+        return !blocked.contains(where: value.contains)
+    }
 }
