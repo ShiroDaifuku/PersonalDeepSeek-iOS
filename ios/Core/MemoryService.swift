@@ -15,19 +15,28 @@ final class MemoryService: MemoryServing, Sendable {
     private let embeddingBackfill: MemoryEmbeddingBackfillService
     private let chatReadPipeline: MemoryChatReadPipeline
     private let profileManager: UserProfileManager
+    private let backfillCoordinator: MemoryBackfillCoordinator?
 
-    init(store: MemoryStore, processor: MemoryProcessor) {
+    init(store: MemoryStore, processor: MemoryProcessor, scanner: HistoricalTurnScanner? = nil) {
         self.store = store
         self.processor = processor
         retriever = MemoryRetriever(store: store)
         embeddingBackfill = MemoryEmbeddingBackfillService(store: store)
         chatReadPipeline = MemoryChatReadPipeline(retriever: retriever)
-        profileManager = UserProfileManager(store: store)
+        let manager = UserProfileManager(store: store)
+        profileManager = manager
+        backfillCoordinator = scanner.map {
+            MemoryBackfillCoordinator(scanner: $0, store: store, processor: processor, profileManager: manager)
+        }
     }
 
     convenience init(modelContainer: ModelContainer, extractor: any MemoryExtracting = MemoryExtractionClient()) {
         let store = MemoryStore(modelContainer: modelContainer)
-        self.init(store: store, processor: MemoryProcessor(store: store, extractor: extractor))
+        self.init(
+            store: store,
+            processor: MemoryProcessor(store: store, extractor: extractor),
+            scanner: HistoricalTurnScanner(modelContainer: modelContainer)
+        )
     }
 
     func getUserProfile(scopeID: String = MemoryScope.localDefault) async throws -> UserMemoryProfileSnapshot {
@@ -101,6 +110,27 @@ final class MemoryService: MemoryServing, Sendable {
             await profileManager.markDirtyAndScheduleRefresh(scopeID: turn.scopeID)
         }
         return result
+    }
+
+    func historicalMemoryPreflight(
+        scopeID: String = MemoryScope.localDefault
+    ) async throws -> MemoryBackfillPreflight {
+        guard let backfillCoordinator else { throw MemoryError.persistenceFailure("backfill_scanner_unavailable") }
+        return try await backfillCoordinator.preflight(scopeID: scopeID)
+    }
+
+    func startHistoricalMemoryImport(
+        scopeID: String = MemoryScope.localDefault,
+        onProgress: (@Sendable (MemoryBackfillProgress) -> Void)? = nil
+    ) async -> MemoryBackfillProgress {
+        guard let backfillCoordinator else {
+            return .init(state: .partiallyFailed, failed: 1)
+        }
+        return await backfillCoordinator.start(scopeID: scopeID, onProgress: onProgress)
+    }
+
+    func cancelHistoricalMemoryImport() async {
+        await backfillCoordinator?.cancel()
     }
 
     func refreshUserProfileIfNeeded(

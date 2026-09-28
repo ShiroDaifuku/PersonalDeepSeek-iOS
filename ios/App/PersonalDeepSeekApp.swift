@@ -21,10 +21,8 @@ struct PersonalDeepSeekApp: App {
         ])
         do {
             let container = try ModelContainer(for: schema)
-            let store = MemoryStore(modelContainer: container)
-            let processor = MemoryProcessor(store: store, extractor: MemoryExtractionClient())
             modelContainer = container
-            memoryService = MemoryService(store: store, processor: processor)
+            memoryService = MemoryService(modelContainer: container)
         } catch {
             fatalError("Unable to open the application data store: \(error.localizedDescription)")
         }
@@ -44,7 +42,7 @@ struct RootView: View {
             NavigationStack { ChatView(memoryService: memoryService) }.tabItem { Label("聊天", systemImage: "bubble.left.and.bubble.right") }.tag("chat")
             NavigationStack { TaskListView() }.tabItem { Label("任务", systemImage: "clock") }.tag("tasks")
             NavigationStack { KnowledgeBaseView() }.tabItem { Label("知识库", systemImage: "books.vertical") }.tag("knowledge")
-            NavigationStack { SettingsView() }.tabItem { Label("设置", systemImage: "gear") }.tag("settings")
+            NavigationStack { SettingsView(memoryService: memoryService) }.tabItem { Label("设置", systemImage: "gear") }.tag("settings")
         }
         .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { notification in
             selectedTab = notification.userInfo?["task_id"] == nil && notification.userInfo?["taskId"] == nil ? "chat" : "tasks"

@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euo pipefail
           project_file="PersonalDeepSeek.xcodeproj/project.pbxproj"
-          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryContext.swift ProfileContext.swift UserProfileManager.swift MemoryContextTests.swift ProfileContextTests.swift ProfileBehaviorRealEvaluationTests.swift UserProfileReadinessTests.swift MemoryStep4PerformanceTests.swift MemoryStoreTests.swift UserProfileManagerTests.swift UserProfilePerformanceTests.swift; do
+          for source in MemoryModels.swift MemoryStore.swift MemoryService.swift MemoryBackfill.swift MemoryContext.swift ProfileContext.swift UserProfileManager.swift MemoryBackfillTests.swift MemoryBackfillRealEvaluationTests.swift MemoryContextTests.swift ProfileContextTests.swift ProfileBehaviorRealEvaluationTests.swift UserProfileReadinessTests.swift MemoryStep4PerformanceTests.swift MemoryStoreTests.swift UserProfileManagerTests.swift UserProfilePerformanceTests.swift; do
             grep -q "$source" "$project_file"
           done
 

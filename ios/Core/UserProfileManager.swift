@@ -69,6 +69,7 @@ actor UserProfileManager {
     private var refreshTask: Task<UserProfileRefreshResult, Error>?
     private var refreshTaskGeneration: Int?
     private var mutationGeneration = 0
+    private var maintenanceHoldCount = 0
 
     init(store: MemoryStore, configuration: UserProfileConfiguration = .init()) {
         self.store = store
@@ -160,7 +161,8 @@ actor UserProfileManager {
         scopeID: String = MemoryScope.localDefault,
         now: Date = Date()
     ) -> UserProfileChatSnapshot? {
-        guard readinessState == .ready,
+        guard maintenanceHoldCount == 0,
+              readinessState == .ready,
               let snapshot = readySnapshot,
               snapshot.scopeID == scopeID
         else { return nil }
@@ -191,8 +193,29 @@ actor UserProfileManager {
         now: Date = Date()
     ) {
         markDirty(scopeID: scopeID)
-        scheduleRefresh(scopeID: scopeID, now: now)
+        if maintenanceHoldCount == 0 {
+            scheduleRefresh(scopeID: scopeID, now: now)
+        }
     }
+
+    func beginMaintenanceHold(scopeID: String = MemoryScope.localDefault) {
+        maintenanceHoldCount += 1
+        markDirty(scopeID: scopeID)
+    }
+
+    func endMaintenanceHold(
+        scopeID: String = MemoryScope.localDefault,
+        now: Date = Date()
+    ) {
+        guard maintenanceHoldCount > 0 else { return }
+        maintenanceHoldCount -= 1
+        if maintenanceHoldCount == 0 {
+            markDirty(scopeID: scopeID)
+            scheduleRefresh(scopeID: scopeID, now: now)
+        }
+    }
+
+    func isMaintenanceHeld() -> Bool { maintenanceHoldCount > 0 }
 
     func derivationSnapshot(
         scopeID: String = MemoryScope.localDefault,

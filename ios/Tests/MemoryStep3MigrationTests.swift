@@ -35,5 +35,6 @@ final class MemoryStep3MigrationTests: XCTestCase {
         let sources = try await store.sources(memoryItemID: migrated.id, scopeID: MemoryScope.localDefault)
         XCTAssertEqual(sources.count, 1)
         XCTAssertEqual(sources.first?.turnFingerprint, "pre-step3-turn")
+        XCTAssertEqual(sources.first?.evidenceAt, sources.first?.createdAt)
     }
 }

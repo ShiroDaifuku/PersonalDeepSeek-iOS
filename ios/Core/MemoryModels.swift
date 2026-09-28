@@ -29,6 +29,11 @@ enum MemoryTurnStatus: String, Codable, Sendable, CaseIterable {
     var isProcessed: Bool { self == .succeeded || self == .noop }
 }
 
+enum MemoryTurnOrigin: String, Codable, Sendable {
+    case live
+    case historicalBackfill
+}
+
 enum MemoryScore {
     static let defaultImportance = 0.5
     static let defaultConfidence = 0.5
@@ -209,6 +214,7 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
     var userMessageID: UUID?
     var assistantMessageID: UUID?
     var turnFingerprint: String
+    var evidenceAt: Date = Date(timeIntervalSince1970: 0)
     var createdAt: Date
     var memoryItem: MemoryItem?
 
@@ -219,6 +225,7 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
         userMessageID: UUID? = nil,
         assistantMessageID: UUID? = nil,
         turnFingerprint: String,
+        evidenceAt: Date? = nil,
         createdAt: Date = Date(),
         memoryItem: MemoryItem? = nil
     ) {
@@ -228,6 +235,7 @@ struct UserMemoryProfilePayload: Codable, Sendable, Equatable {
         self.userMessageID = userMessageID
         self.assistantMessageID = assistantMessageID
         self.turnFingerprint = turnFingerprint
+        self.evidenceAt = evidenceAt ?? createdAt
         self.createdAt = createdAt
         self.memoryItem = memoryItem
     }
@@ -316,7 +324,30 @@ struct MemorySourceSnapshot: Codable, Sendable, Equatable, Identifiable {
     let userMessageID: UUID?
     let assistantMessageID: UUID?
     let turnFingerprint: String
+    let evidenceAt: Date
     let createdAt: Date
+
+    init(
+        id: UUID,
+        scopeID: String,
+        memoryItemID: UUID,
+        sourceConversationID: UUID,
+        userMessageID: UUID?,
+        assistantMessageID: UUID?,
+        turnFingerprint: String,
+        evidenceAt: Date? = nil,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.scopeID = scopeID
+        self.memoryItemID = memoryItemID
+        self.sourceConversationID = sourceConversationID
+        self.userMessageID = userMessageID
+        self.assistantMessageID = assistantMessageID
+        self.turnFingerprint = turnFingerprint
+        self.evidenceAt = evidenceAt ?? createdAt
+        self.createdAt = createdAt
+    }
 }
 
 struct MemoryTurnRecordSnapshot: Codable, Sendable, Equatable, Identifiable {
@@ -346,6 +377,7 @@ struct CompletedTurnSnapshot: Codable, Sendable, Equatable {
     let assistantText: String
     let completedAt: Date
     let turnFingerprint: String
+    let origin: MemoryTurnOrigin
 
     init(
         scopeID: String = MemoryScope.localDefault,
@@ -354,9 +386,45 @@ struct CompletedTurnSnapshot: Codable, Sendable, Equatable {
         userText: String,
         assistantMessageID: UUID,
         assistantText: String,
-        completedAt: Date = Date()
+        completedAt: Date = Date(),
+        origin: MemoryTurnOrigin = .live
     ) {
         self.scopeID = scopeID
+        self.conversationID = conversationID
+        self.userMessageID = userMessageID
+        self.userText = userText
+        self.assistantMessageID = assistantMessageID
+        self.assistantText = assistantText
+        self.completedAt = completedAt
+        self.origin = origin
+        turnFingerprint = CompletedTurnFingerprint.make(
+            conversationID: conversationID,
+            userMessageID: userMessageID,
+            assistantMessageID: assistantMessageID
+        )
+    }
+
+    var processingKey: String { "\(scopeID)|\(turnFingerprint)" }
+}
+
+struct HistoricalCompletedTurnSnapshot: Sendable, Equatable, Identifiable {
+    var id: String { turnFingerprint }
+    let conversationID: UUID
+    let userMessageID: UUID
+    let userText: String
+    let assistantMessageID: UUID
+    let assistantText: String
+    let completedAt: Date
+    let turnFingerprint: String
+
+    init(
+        conversationID: UUID,
+        userMessageID: UUID,
+        userText: String,
+        assistantMessageID: UUID,
+        assistantText: String,
+        completedAt: Date
+    ) {
         self.conversationID = conversationID
         self.userMessageID = userMessageID
         self.userText = userText
@@ -370,7 +438,18 @@ struct CompletedTurnSnapshot: Codable, Sendable, Equatable {
         )
     }
 
-    var processingKey: String { "\(scopeID)|\(turnFingerprint)" }
+    func completedTurn(scopeID: String = MemoryScope.localDefault) -> CompletedTurnSnapshot {
+        .init(
+            scopeID: scopeID,
+            conversationID: conversationID,
+            userMessageID: userMessageID,
+            userText: userText,
+            assistantMessageID: assistantMessageID,
+            assistantText: assistantText,
+            completedAt: completedAt,
+            origin: .historicalBackfill
+        )
+    }
 }
 
 enum CompletedTurnEligibility {
@@ -452,6 +531,7 @@ struct MemorySourceDraft: Sendable, Equatable {
     var userMessageID: UUID?
     var assistantMessageID: UUID?
     var turnFingerprint: String
+    var evidenceAt: Date
     var createdAt: Date
 
     init(
@@ -460,6 +540,7 @@ struct MemorySourceDraft: Sendable, Equatable {
         userMessageID: UUID? = nil,
         assistantMessageID: UUID? = nil,
         turnFingerprint: String,
+        evidenceAt: Date? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -467,6 +548,7 @@ struct MemorySourceDraft: Sendable, Equatable {
         self.userMessageID = userMessageID
         self.assistantMessageID = assistantMessageID
         self.turnFingerprint = turnFingerprint
+        self.evidenceAt = evidenceAt ?? createdAt
         self.createdAt = createdAt
     }
 }

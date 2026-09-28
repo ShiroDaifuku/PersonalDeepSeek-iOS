@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 60
     env:
       RUN_REAL_PROFILE_BEHAVIOR_EVALUATION: "1"
+      RUN_REAL_MEMORY_BACKFILL_EVALUATION: "1"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
     steps:
@@ -84,8 +85,10 @@ jobs:
                   if "TestBundlePath" in value:
                       environment = value.setdefault("EnvironmentVariables", {})
                       environment["RUN_REAL_PROFILE_BEHAVIOR_EVALUATION"] = "1"
+                      environment["RUN_REAL_MEMORY_BACKFILL_EVALUATION"] = "1"
                       environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
                       environment["PROFILE_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
+                      environment["MEMORY_BACKFILL_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
                       injected += 1
                   for child in value.values():
                       visit(child)
@@ -114,6 +117,17 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/profile-behavior-evaluation.log"
 
+      - name: Run real DeepSeek historical backfill timeline evaluation
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/MemoryBackfillRealEvaluationTests/testHistoricalTimelineAgainstRealDeepSeek \
+            test-without-building \
+            | tee "$RUNNER_TEMP/memory-backfill-evaluation.log"
+
       - name: Collect evaluation reports
         if: always()
         run: |
@@ -121,8 +135,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/profile-behavior-report"
           cp "$RUNNER_TEMP/memory-real-evaluation-build.log" "$RUNNER_TEMP/profile-behavior-report/"
           cp "$RUNNER_TEMP/profile-behavior-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
+          cp "$RUNNER_TEMP/memory-backfill-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
           test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"
+          test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.json"
+          test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.md"
 
       - name: Upload evaluation report
         if: always()

@@ -195,6 +195,7 @@ actor MemoryStore {
             userMessageID: draft.userMessageID,
             assistantMessageID: draft.assistantMessageID,
             turnFingerprint: fingerprint,
+            evidenceAt: draft.evidenceAt,
             createdAt: draft.createdAt,
             memoryItem: nil
         )
@@ -231,6 +232,7 @@ actor MemoryStore {
         source.userMessageID = snapshot.userMessageID
         source.assistantMessageID = snapshot.assistantMessageID
         source.turnFingerprint = fingerprint
+        source.evidenceAt = snapshot.evidenceAt
         source.createdAt = snapshot.createdAt
         try save()
         return sourceSnapshot(source, memoryItemID: snapshot.memoryItemID)
@@ -369,9 +371,13 @@ actor MemoryStore {
                 item.confidence = max(item.confidence, confidence)
                 item.reinforcementCount += 1
                 item.lastReinforcedAt = now
-                item.lastConfirmedAt = turn.completedAt
+                item.lastConfirmedAt = max(item.lastConfirmedAt, turn.completedAt)
                 item.updatedAt = now
-                item.expiresAt = expiration(for: MemoryKind(rawValue: item.kindRawValue) ?? .other, now: turn.completedAt)
+                let candidateExpiration = expiration(
+                    for: MemoryKind(rawValue: item.kindRawValue) ?? .other,
+                    now: turn.completedAt
+                )
+                item.expiresAt = maxDate(item.expiresAt, candidateExpiration)
                 attachSource(to: item, turn: turn, scopeID: scope, now: now)
                 mutationCount += 1
 
@@ -379,6 +385,9 @@ actor MemoryStore {
                 guard let oldItem = try memoryModel(id: existingMemoryID, scopeID: scope),
                       oldItem.statusRawValue == MemoryStatus.active.rawValue
                 else { modelContext.rollback(); throw MemoryError.invalidMemoryItem }
+                // Hard local temporal-inversion guard. An older historical turn may never
+                // replace evidence that was confirmed later.
+                guard oldItem.lastConfirmedAt <= turn.completedAt else { continue }
                 oldItem.statusRawValue = MemoryStatus.superseded.rawValue
                 oldItem.updatedAt = now
                 let newItem = makeMemoryItem(
@@ -508,6 +517,7 @@ actor MemoryStore {
             userMessageID: turn.userMessageID,
             assistantMessageID: turn.assistantMessageID,
             turnFingerprint: turn.turnFingerprint,
+            evidenceAt: turn.completedAt,
             createdAt: now
         )
         item.sources.append(source)
@@ -519,6 +529,14 @@ actor MemoryStore {
         case .ongoingContext: now.addingTimeInterval(90 * 24 * 60 * 60)
         case .recentState: now.addingTimeInterval(14 * 24 * 60 * 60)
         default: nil
+        }
+    }
+
+    private func maxDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
+        switch (lhs, rhs) {
+        case (.none, .none): nil
+        case (.some(let value), .none), (.none, .some(let value)): value
+        case (.some(let left), .some(let right)): max(left, right)
         }
     }
 
@@ -565,6 +583,7 @@ actor MemoryStore {
             userMessageID: source.userMessageID,
             assistantMessageID: source.assistantMessageID,
             turnFingerprint: source.turnFingerprint,
+            evidenceAt: source.evidenceAt.timeIntervalSince1970 > 0 ? source.evidenceAt : source.createdAt,
             createdAt: source.createdAt
         )
     }
