@@ -11,11 +11,11 @@ final class MemoryStoreTests: XCTestCase {
             .init(
                 generatedAt: Date(timeIntervalSince1970: 1_000),
                 sourceDigest: "digest",
-                durable: [entry("durable")],
-                preferences: [entry("preference")],
-                ongoing: [entry("ongoing")],
-                recentState: [entry("state")],
-                recentFocus: [entry("focus")]
+                durable: [Self.entry("durable")],
+                preferences: [Self.entry("preference")],
+                ongoing: [Self.entry("ongoing")],
+                recentState: [Self.entry("state")],
+                recentFocus: [Self.entry("focus")]
             )
         ]
         for value in values {
