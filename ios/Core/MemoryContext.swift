@@ -218,7 +218,7 @@ enum PersonalContextDominanceFilter {
         switch kind {
         case .preference:
             let preferenceSubject = containsAny(value, ["喜欢", "偏好", "口味", "想看", "想要", "不要", "不想", "prefer", "like", "want"])
-            let explicitUpdate = containsAny(value, ["我现在", "我已经", "我不再", "我更喜欢", "我的偏好", "我的口味", "i now", "i no longer", "i prefer"])
+            let explicitUpdate = containsAny(value, ["我现在", "我已经", "我不再", "我更喜欢", "i now", "i no longer", "i prefer"])
             let explicitConstraint = containsAny(value, ["不要", "不想", "节奏快", "节奏慢", "紧凑", "舒缓", "更短", "更长", "don't want", "fast-paced", "slow-paced"])
             return preferenceSubject && (explicitUpdate || explicitConstraint)
         case .recentState:
