@@ -26,6 +26,19 @@ enum UserProfileRefreshResult: Sendable, Equatable {
     }
 }
 
+enum UserProfileReadinessState: String, Sendable, Equatable {
+    case uninitialized
+    case ready
+    case dirty
+    case refreshing
+    case failed
+}
+
+struct UserProfileChatSnapshot: Sendable, Equatable {
+    let scopeID: String
+    let payload: UserMemoryProfilePayload
+}
+
 struct UserProfileSectionScore: Sendable, Equatable {
     let section: String
     let rank: Int
@@ -51,6 +64,11 @@ struct UserProfileDerivation: Sendable, Equatable {
 actor UserProfileManager {
     private let store: MemoryStore
     private let configuration: UserProfileConfiguration
+    private var readinessState: UserProfileReadinessState = .uninitialized
+    private var readySnapshot: UserMemoryProfileSnapshot?
+    private var refreshTask: Task<UserProfileRefreshResult, Error>?
+    private var refreshTaskGeneration: Int?
+    private var mutationGeneration = 0
 
     init(store: MemoryStore, configuration: UserProfileConfiguration = .init()) {
         self.store = store
@@ -61,35 +79,50 @@ actor UserProfileManager {
         scopeID: String = MemoryScope.localDefault,
         now: Date = Date()
     ) async throws -> UserProfileRefreshResult {
-        // Retry conflicts because another manager/process may have committed while this actor
-        // was suspended fetching snapshots. Never overwrite a newer revision.
-        for attempt in 0..<3 {
-            let current = try await store.getOrCreateProfile(scopeID: scopeID)
-            let memories = try await store.listMemories(scopeID: scopeID)
-            let candidate = Self.derive(
-                memories: memories,
-                scopeID: scopeID,
-                now: now,
-                configuration: configuration
-            )
-            if current.payload.schemaVersion == UserMemoryProfilePayload.currentSchemaVersion,
-               current.payload.sourceDigest == candidate.payload.sourceDigest {
-                return .noChange(current)
-            }
-            do {
-                let updated = try await store.updateProfile(
+        let task: Task<UserProfileRefreshResult, Error>
+        let generation: Int
+        if let existing = refreshTask, let existingGeneration = refreshTaskGeneration {
+            task = existing
+            generation = existingGeneration
+        } else {
+            readinessState = .refreshing
+            generation = mutationGeneration
+            let store = self.store
+            let configuration = self.configuration
+            task = Task {
+                try await Self.reconcile(
+                    store: store,
+                    configuration: configuration,
                     scopeID: scopeID,
-                    expectedRevision: current.revision,
-                    payload: candidate.payload
+                    now: now
                 )
-                return .updated(updated)
-            } catch let error as MemoryError {
-                if case .revisionConflict = error, attempt < 2 { continue }
-                throw error
             }
+            refreshTask = task
+            refreshTaskGeneration = generation
         }
-        let latest = try await store.getOrCreateProfile(scopeID: scopeID)
-        throw MemoryError.revisionConflict(expected: latest.revision, actual: latest.revision)
+        do {
+            let result = try await task.value
+            if refreshTaskGeneration == generation {
+                refreshTask = nil
+                refreshTaskGeneration = nil
+            }
+            if generation != mutationGeneration {
+                readinessState = .dirty
+                readySnapshot = nil
+                return try await refreshIfNeeded(scopeID: scopeID, now: now)
+            }
+            readySnapshot = result.snapshot
+            readinessState = .ready
+            return result
+        } catch {
+            if refreshTaskGeneration == generation {
+                refreshTask = nil
+                refreshTaskGeneration = nil
+            }
+            readySnapshot = nil
+            readinessState = .failed
+            throw error
+        }
     }
 
     func rebuild(
@@ -107,6 +140,45 @@ actor UserProfileManager {
     ) async throws -> UserMemoryProfileSnapshot {
         let result = try await refreshIfNeeded(scopeID: scopeID, now: now)
         return result.snapshot
+    }
+
+    /// Chat-only O(1) path. It never reads MemoryStore and never performs a rebuild.
+    func readyProfileForChat(
+        scopeID: String = MemoryScope.localDefault,
+        now: Date = Date()
+    ) -> UserProfileChatSnapshot? {
+        guard readinessState == .ready,
+              let snapshot = readySnapshot,
+              snapshot.scopeID == scopeID
+        else { return nil }
+        if let nextRefreshAt = snapshot.payload.nextRefreshAt, now >= nextRefreshAt {
+            mutationGeneration += 1
+            readinessState = .dirty
+            readySnapshot = nil
+            scheduleRefresh(scopeID: scopeID, now: now)
+            return nil
+        }
+        let payload = snapshot.payload
+        guard !payload.durable.isEmpty || !payload.preferences.isEmpty || !payload.ongoing.isEmpty
+                || !payload.recentState.isEmpty || !payload.recentFocus.isEmpty
+        else { return nil }
+        return .init(scopeID: scopeID, payload: payload)
+    }
+
+    func readiness() -> UserProfileReadinessState { readinessState }
+
+    func markDirty(scopeID: String = MemoryScope.localDefault) {
+        mutationGeneration += 1
+        readinessState = .dirty
+        readySnapshot = nil
+    }
+
+    func markDirtyAndScheduleRefresh(
+        scopeID: String = MemoryScope.localDefault,
+        now: Date = Date()
+    ) {
+        markDirty(scopeID: scopeID)
+        scheduleRefresh(scopeID: scopeID, now: now)
     }
 
     func derivationSnapshot(
@@ -210,6 +282,49 @@ actor UserProfileManager {
             eligibilityMilliseconds: eligibilityMilliseconds,
             rankingMilliseconds: Date().timeIntervalSince(rankingStartedAt) * 1_000
         )
+    }
+
+    private func scheduleRefresh(scopeID: String, now: Date) {
+        guard refreshTask == nil else { return }
+        Task(priority: .utility) { [weak self] in
+            _ = try? await self?.refreshIfNeeded(scopeID: scopeID, now: now)
+        }
+    }
+
+    private nonisolated static func reconcile(
+        store: MemoryStore,
+        configuration: UserProfileConfiguration,
+        scopeID: String,
+        now: Date
+    ) async throws -> UserProfileRefreshResult {
+        // Retry conflicts because another manager/process may commit during snapshot fetches.
+        for attempt in 0..<3 {
+            let current = try await store.getOrCreateProfile(scopeID: scopeID)
+            let memories = try await store.listMemories(scopeID: scopeID)
+            let candidate = derive(
+                memories: memories,
+                scopeID: scopeID,
+                now: now,
+                configuration: configuration
+            )
+            if current.payload.schemaVersion == UserMemoryProfilePayload.currentSchemaVersion,
+               current.payload.sourceDigest == candidate.payload.sourceDigest {
+                return .noChange(current)
+            }
+            do {
+                let updated = try await store.updateProfile(
+                    scopeID: scopeID,
+                    expectedRevision: current.revision,
+                    payload: candidate.payload
+                )
+                return .updated(updated)
+            } catch let error as MemoryError {
+                if case .revisionConflict = error, attempt < 2 { continue }
+                throw error
+            }
+        }
+        let latest = try await store.getOrCreateProfile(scopeID: scopeID)
+        throw MemoryError.revisionConflict(expected: latest.revision, actual: latest.revision)
     }
 
     private nonisolated static func ranked(

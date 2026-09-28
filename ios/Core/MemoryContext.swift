@@ -78,6 +78,7 @@ struct MemoryContextPayload: Codable, Sendable, Equatable {
 struct InjectedMemoryDescriptor: Sendable, Equatable {
     let id: UUID
     let kind: MemoryKind
+    let canonicalText: String
     let rank: Int
     let finalScore: Double
 }
@@ -137,7 +138,7 @@ enum MemoryContextBuilder {
 
         for result in ordered where selectedResults.count < budget.maximumMemories {
             guard seen.insert(result.memoryID).inserted else { continue }
-            if CurrentTurnDominanceDetector.explicitlyProvidesCurrentValue(
+            if PersonalContextDominanceFilter.explicitlyProvidesCurrentValue(
                 for: result.kind,
                 text: currentUserText
             ) {
@@ -173,7 +174,10 @@ enum MemoryContextBuilder {
         let context = MemoryContextSnapshot(
             messageContent: acceptedContent,
             injected: selectedResults.map {
-                .init(id: $0.memoryID, kind: $0.kind, rank: $0.rank, finalScore: $0.finalScore)
+                .init(
+                    id: $0.memoryID, kind: $0.kind, canonicalText: $0.canonicalText,
+                    rank: $0.rank, finalScore: $0.finalScore
+                )
             },
             characterCount: acceptedContent.count,
             estimatedTokens: estimateTokens(acceptedContent)
@@ -205,7 +209,7 @@ enum MemoryContextBuilder {
     }
 }
 
-enum CurrentTurnDominanceDetector {
+enum PersonalContextDominanceFilter {
     static func explicitlyProvidesCurrentValue(for kind: MemoryKind, text: String) -> Bool {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !value.isEmpty, containsAny(value, ["我", "本人", "my ", "i ", "i'm", "i am"]) else {
@@ -242,6 +246,7 @@ enum ChatRequestAssembler {
         system: String,
         history: [ChatMessage],
         knowledgeContext: String? = nil,
+        profileContext: ProfileContextSnapshot? = nil,
         memoryContext: MemoryContextSnapshot?,
         newUserText: String,
         imageDataURLs: [String] = []
@@ -253,11 +258,15 @@ enum ChatRequestAssembler {
             newUserText: newUserText,
             imageDataURLs: imageDataURLs
         )
-        guard let memoryContext else { return messages }
-        messages.insert(
-            APIMessage(role: "system", content: memoryContext.messageContent),
-            at: max(0, messages.count - 1)
-        )
+        if let profileContext {
+            messages.insert(APIMessage(role: "system", content: profileContext.messageContent), at: 1)
+        }
+        if let memoryContext {
+            messages.insert(
+                APIMessage(role: "system", content: memoryContext.messageContent),
+                at: max(0, messages.count - 1)
+            )
+        }
         return messages
     }
 }

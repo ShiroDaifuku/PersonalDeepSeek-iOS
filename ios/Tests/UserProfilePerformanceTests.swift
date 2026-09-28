@@ -15,6 +15,17 @@ final class UserProfilePerformanceTests: XCTestCase {
         let profileEntryCount: Int
     }
 
+    private struct ChatFastPathMeasurement: Codable {
+        let itemCount: Int
+        let profileFetchDecodeMilliseconds: Double
+        let readyLookupMilliseconds: Double
+        let dedupeMilliseconds: Double
+        let contextBuildMilliseconds: Double
+        let totalMilliseconds: Double
+        let contextCharacters: Int
+        let contextEstimatedTokens: Int
+    }
+
     func testProfileRebuildAtPersonalScale() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         var measurements: [Measurement] = []
@@ -77,6 +88,83 @@ final class UserProfilePerformanceTests: XCTestCase {
         }
     }
 
+    func testReadyProfileChatFastPathDoesNotScaleWithMemoryItemCount() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var measurements: [ChatFastPathMeasurement] = []
+        for count in [100, 1_000, 5_000] {
+            let container = try makeContainer()
+            let context = ModelContext(container)
+            for index in 0..<count {
+                let kind: MemoryKind = [.durableFact, .preference, .ongoingContext, .recentState, .event][index % 5]
+                context.insert(MemoryItem(
+                    scopeID: MemoryScope.localDefault,
+                    kindRawValue: kind.rawValue,
+                    canonicalText: "用户的合成画像记忆 \(index)。",
+                    importance: Double(index % 10) / 10,
+                    confidence: 0.9,
+                    createdAt: now,
+                    updatedAt: now,
+                    lastConfirmedAt: now,
+                    reinforcementCount: index % 8
+                ))
+            }
+            try context.save()
+            let manager = UserProfileManager(store: MemoryStore(modelContainer: container))
+            _ = try await manager.refreshIfNeeded(now: now)
+
+            var lookupTotal = 0.0
+            var dedupeTotal = 0.0
+            var buildTotal = 0.0
+            var total = 0.0
+            var finalContext: ProfileContextSnapshot?
+            let iterations = 100
+            for _ in 0..<iterations {
+                let totalStarted = Date()
+                let lookupStarted = Date()
+                let profile = await manager.readyProfileForChat(now: now)
+                lookupTotal += Date().timeIntervalSince(lookupStarted) * 1_000
+                let output = profile.map {
+                    ProfileContextBuilder.build(
+                        profile: $0,
+                        currentUserText: "请根据我的情况给出建议。",
+                        retrievedMemoryContext: nil
+                    )
+                }
+                dedupeTotal += output?.dedupeMilliseconds ?? 0
+                buildTotal += output?.contextBuildMilliseconds ?? 0
+                finalContext = output?.context
+                total += Date().timeIntervalSince(totalStarted) * 1_000
+            }
+            let divisor = Double(iterations)
+            let value = ChatFastPathMeasurement(
+                itemCount: count,
+                // The ready API is an actor-memory lookup. It deliberately performs no store
+                // fetch and no Data decode on the request path.
+                profileFetchDecodeMilliseconds: 0,
+                readyLookupMilliseconds: lookupTotal / divisor,
+                dedupeMilliseconds: dedupeTotal / divisor,
+                contextBuildMilliseconds: buildTotal / divisor,
+                totalMilliseconds: total / divisor,
+                contextCharacters: finalContext?.characterCount ?? 0,
+                contextEstimatedTokens: finalContext?.estimatedTokens ?? 0
+            )
+            XCTAssertNotNil(finalContext)
+            XCTAssertLessThanOrEqual(value.contextCharacters, ProfileContextBudget.chatDefault.maximumCharacters)
+            XCTAssertLessThanOrEqual(value.contextEstimatedTokens, ProfileContextBudget.chatDefault.maximumEstimatedTokens)
+            measurements.append(value)
+        }
+        XCTAssertEqual(measurements.map(\.itemCount), [100, 1_000, 5_000])
+        XCTAssertLessThan(measurements.map(\.totalMilliseconds).max() ?? .infinity, 100)
+        try writeChatFastPathReports(measurements)
+        for value in measurements {
+            print(
+                "[ProfileChatFastPath] count=\(value.itemCount) fetch_decode_ms=0 " +
+                "lookup_ms=\(value.readyLookupMilliseconds) dedupe_ms=\(value.dedupeMilliseconds) " +
+                "build_ms=\(value.contextBuildMilliseconds) total_ms=\(value.totalMilliseconds)"
+            )
+        }
+    }
+
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([UserMemoryProfile.self, MemoryItem.self, MemorySource.self, MemoryTurnRecord.self])
         return try ModelContainer(for: schema, configurations: [ModelConfiguration(
@@ -99,6 +187,29 @@ final class UserProfilePerformanceTests: XCTestCase {
         }
         try lines.joined(separator: "\n").write(
             to: directory.appendingPathComponent("user-profile-performance.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private func writeChatFastPathReports(_ values: [ChatFastPathMeasurement]) throws {
+        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let json = try JSONEncoder.pretty.encode(values)
+        try json.write(
+            to: directory.appendingPathComponent("user-profile-chat-fast-path-performance.json"),
+            options: .atomic
+        )
+        var lines = [
+            "# User Profile Chat Fast Path Performance", "",
+            "Profile fetch/decode is `0 ms` by construction: the chat API reads only the manager's ready in-memory snapshot.", "",
+            "| Items | Fetch/decode ms | Ready lookup ms | Dedupe ms | Build ms | Total ms | Chars | Tokens est. |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|"
+        ]
+        lines += values.map {
+            "| \($0.itemCount) | 0 | \(format($0.readyLookupMilliseconds)) | \(format($0.dedupeMilliseconds)) | \(format($0.contextBuildMilliseconds)) | \(format($0.totalMilliseconds)) | \($0.contextCharacters) | \($0.contextEstimatedTokens) |"
+        }
+        try lines.joined(separator: "\n").write(
+            to: directory.appendingPathComponent("user-profile-chat-fast-path-performance.md"),
             atomically: true,
             encoding: .utf8
         )

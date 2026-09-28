@@ -238,12 +238,32 @@ struct ChatView: View {
             var completedSuccessfully = false
             do {
                 try Task.checkCancellation()
-                // Exactly one immutable, fail-open Memory read is performed per send. The
-                // planner never sees it, and every later main-answer stage reuses this snapshot.
+                // The Profile read is an O(1) actor-cache lookup and runs alongside the single
+                // fail-open Atomic Memory retrieval. Neither personal context reaches the tool
+                // planner; every main-answer stage reuses these immutable snapshots.
+                async let readyProfile = memoryService.readyProfileForChat()
                 let retrievedMemoryContext = await memoryService.contextForChat(
                     input: memoryRetrievalInput,
                     currentUserText: displayText
                 )
+                let profileSnapshot = await readyProfile
+                let profileBuild = profileSnapshot.map {
+                    ProfileContextBuilder.build(
+                        profile: $0,
+                        currentUserText: displayText,
+                        retrievedMemoryContext: retrievedMemoryContext
+                    )
+                }
+                let profileContext = profileBuild?.context
+#if DEBUG
+                if let profileBuild {
+                    print(
+                        "[ProfileRead] injected=\(profileContext?.injected.count ?? 0) " +
+                        "dedupe_ms=\(profileBuild.dedupeMilliseconds) build_ms=\(profileBuild.contextBuildMilliseconds) " +
+                        "chars=\(profileContext?.characterCount ?? 0) tokens_est=\(profileContext?.estimatedTokens ?? 0)"
+                    )
+                }
+#endif
                 try Task.checkCancellation()
                 let tasks = preferredTool == "edit_scheduled_task" ? ((try? await taskAPI?.list()) ?? []) : []
                 let calls: [AssistantToolCall]
@@ -289,6 +309,7 @@ struct ChatView: View {
                         system: conversation.systemPrompt,
                         history: history,
                         knowledgeContext: referenceSections.joined(separator: "\n\n"),
+                        profileContext: profileContext,
                         memoryContext: retrievedMemoryContext,
                         newUserText: requestText,
                         imageDataURLs: imageDataURLs

@@ -46,6 +46,15 @@ final class MemoryService: MemoryServing, Sendable {
         try await retriever.search(input)
     }
 
+    /// O(1), fail-open chat read from the manager's in-memory ready snapshot. This method never
+    /// scans MemoryItem storage and never waits for profile reconciliation.
+    func readyProfileForChat(
+        scopeID: String = MemoryScope.localDefault,
+        now: Date = Date()
+    ) async -> UserProfileChatSnapshot? {
+        await profileManager.readyProfileForChat(scopeID: scopeID, now: now)
+    }
+
     /// Fail-open request-time memory read. This never mutates chat or memory state and never
     /// surfaces an auxiliary retrieval failure to the normal chat error path.
     func contextForChat(
@@ -87,10 +96,9 @@ final class MemoryService: MemoryServing, Sendable {
     func processCompletedTurn(_ turn: CompletedTurnSnapshot) async -> MemoryProcessingResult {
         let result = await processor.processCompletedTurn(turn)
         if case .processed(let operationCount, _) = result, operationCount > 0 {
-            // Chat invokes completed-turn processing in its own background Task. Keeping this
-            // child work structured prevents it from being abandoned when the app suspends,
-            // while the fail-open boundary preserves the successful Memory write result.
-            _ = try? await profileManager.refreshIfNeeded(scopeID: turn.scopeID)
+            // Invalidate synchronously so chat can never observe a known-stale snapshot, then let
+            // the manager own the low-priority refresh. The completed turn does not wait for it.
+            await profileManager.markDirtyAndScheduleRefresh(scopeID: turn.scopeID)
         }
         return result
     }
