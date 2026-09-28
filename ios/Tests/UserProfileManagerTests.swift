@@ -256,19 +256,20 @@ final class UserProfileManagerTests: XCTestCase {
         let processor = MemoryProcessor(store: store, extractor: extractor)
         let manager = UserProfileManager(store: store)
         let retriever = MemoryRetriever(store: store, semanticResolver: nil)
+        let currentNow = now
         let turn = CompletedTurnSnapshot(
             conversationID: UUID(), userMessageID: UUID(), userText: "我正在开发 Memory 系统。",
-            assistantMessageID: UUID(), assistantText: "好的。", completedAt: now
+            assistantMessageID: UUID(), assistantText: "好的。", completedAt: currentNow
         )
 
         async let write = processor.processCompletedTurn(turn)
-        async let refresh = manager.refreshIfNeeded(now: now)
-        async let read = retriever.search(.init(primaryText: "Memory 系统"), now: now)
+        async let refresh = manager.refreshIfNeeded(now: currentNow)
+        async let read = retriever.search(.init(primaryText: "Memory 系统"), now: currentNow)
         let writeResult = await write
         _ = try await refresh
         _ = try await read
         guard case .processed = writeResult else { return XCTFail("Expected successful processor write") }
-        let final = try await manager.profileSnapshot(now: now)
+        let final = try await manager.profileSnapshot(now: currentNow)
         XCTAssertEqual(final.payload.ongoing.map(\.text), ["用户正在开发 Memory 系统。"])
         XCTAssertEqual(final.payload.ongoing.first?.sourceMemoryIDs.count, 1)
     }
