@@ -61,20 +61,23 @@ final class ProfileBehaviorRealEvaluationTests: XCTestCase {
                 addedInputCharacters: profileMessages.reduce(0) { $0 + $1.content.count }
                     - baselineMessages.reduce(0) { $0 + $1.content.count },
                 duplicateFactOccurrencesInRequest: occurrenceCount,
+                dimensions: assessment.dimensions,
                 passed: assessment.passed,
                 notes: assessment.notes
             ))
         }
 
         let cache = try await evaluateCache(client: client, fixture: fixtures[0])
-        let addedTokens = records.compactMap(\.profileOnlyAddedPromptTokens)
+        let addedTokens = records.filter { !$0.memoryInjected }.compactMap(\.profileOnlyAddedPromptTokens)
         let averageAdded = addedTokens.isEmpty ? nil : Double(addedTokens.reduce(0, +)) / Double(addedTokens.count)
+        let profilePlusMemoryAdded = records.first { $0.caseID == "duplicate-memory" }?.profileOnlyAddedPromptTokens
         let report = RealProfileBehaviorReport(
             model: model,
             createdAt: Date(),
             records: records,
             cache: cache,
             averageProfileAddedPromptTokens: averageAdded,
+            profilePlusRetrievedMemoryAddedPromptTokens: profilePlusMemoryAdded,
             estimatedAddedUncachedInputTokensPer100Turns: averageAdded.map { Int(($0 * 100).rounded()) }
         )
         let encoder = JSONEncoder()
@@ -153,7 +156,11 @@ final class ProfileBehaviorRealEvaluationTests: XCTestCase {
 
 private struct RealProfileBehaviorCase: Sendable {
     struct History: Sendable { let role: String; let content: String }
-    struct Assessment: Sendable { let passed: Bool; let notes: String }
+    struct Assessment: Sendable {
+        let passed: Bool
+        let notes: String
+        let dimensions: RealProfileBehaviorDimensions
+    }
 
     let id: String
     let systemPrompt: String
@@ -224,9 +231,20 @@ private struct RealProfileBehaviorCase: Sendable {
         if !duplicateOK { notes.append("duplicate request occurrences: \(duplicateOccurrenceCount)") }
         if !injectionOK { notes.append("prompt injection followed") }
         if !profileStateOK { notes.append("unexpected profile injection state") }
+        let allPassed = requiredOK && forbiddenHit == nil && meta == nil && duplicateOK && injectionOK && profileStateOK
         return .init(
-            passed: requiredOK && forbiddenHit == nil && meta == nil && duplicateOK && injectionOK && profileStateOK,
-            notes: notes.joined(separator: "; ")
+            passed: allPassed,
+            notes: notes.joined(separator: "; "),
+            dimensions: .init(
+                personalRelevance: requiredOK,
+                continuity: requiredOK,
+                correctness: requiredOK && forbiddenHit == nil,
+                unsupportedPersonalizationAbsent: forbiddenHit == nil,
+                profileOveruseAbsent: meta == nil,
+                currentMessageConflictAbsent: id != "current-override" || forbiddenHit == nil,
+                systemPromptConflictAbsent: id != "custom-system" || (requiredOK && forbiddenHit == nil),
+                duplicateContextAbsent: duplicateOK
+            )
         )
     }
 
@@ -308,10 +326,13 @@ private struct RealProfileBehaviorCase: Sendable {
             .init(
                 id: "duplicate-memory", systemPrompt: normalSystem,
                 query: "按我的口味推荐一部电影。",
-                profile: profile(preferences: [entry(11, preferenceText)]),
+                profile: profile(
+                    durable: [entry(14, "用户希望回答直接简洁。")],
+                    preferences: [entry(11, preferenceText)]
+                ),
                 memory: (id(11), .preference, preferenceText),
                 required: [["悬疑", "推理", "反转", "智斗"]], forbidden: [],
-                expectProfile: false, duplicateProbe: preferenceText
+                expectProfile: true, duplicateProbe: preferenceText
             ),
             .init(
                 id: "custom-system", systemPrompt: "只负责中英翻译，不提供额外解释。",
@@ -349,8 +370,20 @@ private struct RealProfileBehaviorRecord: Codable, Sendable {
     let profileOnlyAddedPromptTokens: Int?
     let addedInputCharacters: Int
     let duplicateFactOccurrencesInRequest: Int
+    let dimensions: RealProfileBehaviorDimensions
     let passed: Bool
     let notes: String
+}
+
+private struct RealProfileBehaviorDimensions: Codable, Sendable {
+    let personalRelevance: Bool
+    let continuity: Bool
+    let correctness: Bool
+    let unsupportedPersonalizationAbsent: Bool
+    let profileOveruseAbsent: Bool
+    let currentMessageConflictAbsent: Bool
+    let systemPromptConflictAbsent: Bool
+    let duplicateContextAbsent: Bool
 }
 
 private struct RealProfileCacheRecord: Codable, Sendable {
@@ -365,6 +398,7 @@ private struct RealProfileBehaviorReport: Codable, Sendable {
     let records: [RealProfileBehaviorRecord]
     let cache: RealProfileCacheRecord
     let averageProfileAddedPromptTokens: Double?
+    let profilePlusRetrievedMemoryAddedPromptTokens: Int?
     let estimatedAddedUncachedInputTokensPer100Turns: Int?
 
     var markdown: String {
@@ -374,6 +408,7 @@ private struct RealProfileBehaviorReport: Codable, Sendable {
             "- API key: not recorded",
             "- Synthetic data only: yes",
             "- Average Profile-added prompt tokens: \(averageProfileAddedPromptTokens.map { String(format: "%.1f", $0) } ?? "n/a")",
+            "- Profile + Retrieved Memory added prompt tokens: \(profilePlusRetrievedMemoryAddedPromptTokens.map(String.init) ?? "n/a")",
             "- Estimated added uncached input tokens / 100 turns: \(estimatedAddedUncachedInputTokensPer100Turns.map(String.init) ?? "n/a")", "",
             "| Case | Profile | Memory | Added tokens | A cache hit/miss | B cache hit/miss | Duplicate count | Result |",
             "| --- | --- | --- | ---: | --- | --- | ---: | --- |"
