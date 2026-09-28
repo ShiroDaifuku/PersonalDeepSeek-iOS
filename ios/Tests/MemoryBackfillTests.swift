@@ -160,17 +160,19 @@ final class MemoryBackfillTests: XCTestCase {
             let container = try makeContainer()
             let context = ModelContext(container)
             let conversation = Conversation(title: "performance-\(count)")
-            context.insert(conversation)
             let base = date(2020, 1, 1)
+            var messages: [ChatMessage] = []
+            messages.reserveCapacity(count * 2)
             for index in 0..<count {
-                addTurn(
-                    to: conversation,
-                    context: context,
-                    user: "用户消息 \(index)",
-                    assistant: "助手回答 \(index)",
-                    at: base.addingTimeInterval(Double(index * 2))
-                )
+                let completedAt = base.addingTimeInterval(Double(index * 2))
+                let user = ChatMessage(role: "user", content: "用户消息 \(index)")
+                user.createdAt = completedAt.addingTimeInterval(-1)
+                let assistant = ChatMessage(role: "assistant", content: "助手回答 \(index)")
+                assistant.createdAt = completedAt
+                messages.append(user); messages.append(assistant)
             }
+            conversation.messages = messages
+            context.insert(conversation)
             try context.save()
             let store = MemoryStore(modelContainer: container)
             let processor = MemoryProcessor(store: store, extractor: BackfillScriptedExtractor(plans: []))
