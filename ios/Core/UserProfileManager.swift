@@ -105,6 +105,14 @@ actor UserProfileManager {
         scopeID: String = MemoryScope.localDefault,
         now: Date = Date()
     ) async throws -> UserMemoryProfileSnapshot {
+        let current = try await store.getOrCreateProfile(scopeID: scopeID)
+        let isAuthoritativelyDerived = current.payload.schemaVersion == UserMemoryProfilePayload.currentSchemaVersion
+            && current.payload.sourceDigest != "uninitialized"
+            && current.payload.sourceDigest != "legacy-v1-untrusted"
+        if isAuthoritativelyDerived,
+           current.payload.nextRefreshAt.map({ now < $0 }) ?? true {
+            return current
+        }
         let result = try await refreshIfNeeded(scopeID: scopeID, now: now)
         return result.snapshot
     }
