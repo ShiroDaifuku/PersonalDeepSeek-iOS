@@ -254,6 +254,7 @@ private actor BackfillScriptedExtractor: MemoryExtracting {
             action: "add", existingMemoryID: nil, kind: kind.rawValue,
             canonicalText: text, importance: 0.8, confidence: 0.95
         )
+        }
         let response = MemoryExtractionResponse(schemaVersion: 1, operations: [operation])
         return .init(response: response, metrics: .init(
             latencyMilliseconds: 1,
