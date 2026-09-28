@@ -1,0 +1,132 @@
+name: Evaluate iOS Global Profile Behavior
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-profile-behavior-evaluation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate-profile-behavior:
+    name: Run synthetic DeepSeek Profile A/B benchmark
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      RUN_REAL_PROFILE_BEHAVIOR_EVALUATION: "1"
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Require evaluation secret
+        run: |
+          set -euo pipefail
+          test -n "$DEEPSEEK_API_KEY"
+
+      - name: Select Xcode 16.4
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Select Simulator
+        run: |
+          set -euo pipefail
+          destination_id="$(xcrun simctl list devices available \
+            | sed -nE '/iPhone/s/.*\(([0-9A-Fa-f-]{36})\) \((Booted|Shutdown)\).*/\1/p' \
+            | sed -n '1p')"
+          test -n "$destination_id"
+          echo "SIMULATOR_ID=$destination_id" >> "$GITHUB_ENV"
+
+      - name: Build evaluation test bundle
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PersonalDeepSeek.xcodeproj \
+            -scheme PersonalDeepSeek \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/ProfileBehaviorDerivedData" \
+            build-for-testing \
+            | tee "$RUNNER_TEMP/profile-behavior-build.log"
+
+      - name: Inject temporary evaluation environment
+        run: |
+          set -euo pipefail
+          xctestrun="$(find "$RUNNER_TEMP/ProfileBehaviorDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
+          test -n "$xctestrun"
+          python3 - "$xctestrun" <<'PY'
+          import os
+          import plistlib
+          import sys
+
+          path = sys.argv[1]
+          with open(path, "rb") as source:
+              document = plistlib.load(source)
+          injected = 0
+          def visit(value):
+              global injected
+              if isinstance(value, dict):
+                  if "TestBundlePath" in value:
+                      environment = value.setdefault("EnvironmentVariables", {})
+                      environment["RUN_REAL_PROFILE_BEHAVIOR_EVALUATION"] = "1"
+                      environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
+                      environment["PROFILE_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
+                      injected += 1
+                  for child in value.values():
+                      visit(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      visit(child)
+          visit(document)
+          if injected == 0:
+              raise SystemExit("No XCTest configuration found")
+          with open(path, "wb") as destination:
+              plistlib.dump(document, destination)
+          PY
+          echo "XCTESTRUN_PATH=$xctestrun" >> "$GITHUB_ENV"
+
+      - name: Run real DeepSeek Profile A/B evaluation
+        working-directory: ios
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/profile-behavior-report"
+          xcodebuild \
+            -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath "$RUNNER_TEMP/ProfileBehaviorEvaluation.xcresult" \
+            -only-testing:PersonalDeepSeekTests/ProfileBehaviorRealEvaluationTests/testGlobalProfileBehaviorAgainstRealDeepSeek \
+            test-without-building \
+            | tee "$RUNNER_TEMP/profile-behavior-evaluation.log"
+
+      - name: Collect behavior report
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/profile-behavior-report"
+          cp "$RUNNER_TEMP/profile-behavior-build.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/profile-behavior-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
+          test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
+          test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"
+
+      - name: Upload behavior report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-behavior-evaluation-${{ github.run_id }}
+          path: ${{ runner.temp }}/profile-behavior-report
+          if-no-files-found: error
+          retention-days: 14
