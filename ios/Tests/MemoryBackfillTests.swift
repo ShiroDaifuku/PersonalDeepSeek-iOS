@@ -67,7 +67,8 @@ final class MemoryBackfillTests: XCTestCase {
             modelName: "test",
             now: date(2026, 9, 28)
         )
-        let updated = try XCTUnwrap(try await store.memory(id: item.id, scopeID: MemoryScope.localDefault))
+        let fetched = try await store.memory(id: item.id, scopeID: MemoryScope.localDefault)
+        let updated = try XCTUnwrap(fetched)
         XCTAssertEqual(updated.lastConfirmedAt, currentDate)
         XCTAssertEqual(updated.expiresAt, currentDate.addingTimeInterval(90 * 86_400))
         let sources = try await store.sources(memoryItemID: item.id, scopeID: MemoryScope.localDefault)
