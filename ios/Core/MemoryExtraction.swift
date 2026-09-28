@@ -188,6 +188,7 @@ actor MemoryExtractionClient: MemoryExtracting {
             "stream": false,
             "thinking": ["type": "disabled"],
             "reasoning_effort": "none",
+            "temperature": 0,
             "max_tokens": maxTokens,
             "response_format": ["type": "json_object"],
             "messages": [
