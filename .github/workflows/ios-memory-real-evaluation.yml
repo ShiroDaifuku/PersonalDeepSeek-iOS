@@ -118,6 +118,7 @@ jobs:
             | tee "$RUNNER_TEMP/profile-behavior-evaluation.log"
 
       - name: Run real DeepSeek historical backfill timeline evaluation
+        if: always()
         working-directory: ios
         run: |
           set -o pipefail
