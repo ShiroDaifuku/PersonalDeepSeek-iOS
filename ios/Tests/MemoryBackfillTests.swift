@@ -297,19 +297,20 @@ private actor BackfillScriptedExtractor: MemoryExtracting {
         callCount += 1
         guard !plans.isEmpty else { throw MemoryProcessingError.networkError }
         let plan = plans.removeFirst()
-        let operation: MemoryExtractionOperation = switch plan {
+        let operation: MemoryExtractionOperation
+        switch plan {
         case .add(let kind, let text):
-            .init(action: "add", existingMemoryID: nil, kind: kind.rawValue,
-                  canonicalText: text, importance: 0.8, confidence: 0.95)
+            operation = .init(action: "add", existingMemoryID: nil, kind: kind.rawValue,
+                              canonicalText: text, importance: 0.8, confidence: 0.95)
         case .reinforceFirst:
             guard let candidate = candidates.first else { throw MemoryProcessingError.validationRejected }
-            .init(action: "reinforce", existingMemoryID: candidate.id.uuidString,
-                  kind: candidate.kind.rawValue, canonicalText: candidate.canonicalText,
-                  importance: 0.85, confidence: 0.96)
+            operation = .init(action: "reinforce", existingMemoryID: candidate.id.uuidString,
+                              kind: candidate.kind.rawValue, canonicalText: candidate.canonicalText,
+                              importance: 0.85, confidence: 0.96)
         case .supersedeFirst(let kind, let text):
             guard let candidate = candidates.first else { throw MemoryProcessingError.validationRejected }
-            .init(action: "supersede", existingMemoryID: candidate.id.uuidString,
-                  kind: kind.rawValue, canonicalText: text, importance: 0.9, confidence: 0.97)
+            operation = .init(action: "supersede", existingMemoryID: candidate.id.uuidString,
+                              kind: kind.rawValue, canonicalText: text, importance: 0.9, confidence: 0.97)
         }
         let response = MemoryExtractionResponse(schemaVersion: 1, operations: [operation])
         return .init(response: response, metrics: .init(
