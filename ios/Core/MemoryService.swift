@@ -87,13 +87,10 @@ final class MemoryService: MemoryServing, Sendable {
     func processCompletedTurn(_ turn: CompletedTurnSnapshot) async -> MemoryProcessingResult {
         let result = await processor.processCompletedTurn(turn)
         if case .processed(let operationCount, _) = result, operationCount > 0 {
-            let manager = profileManager
-            let scopeID = turn.scopeID
-            Task(priority: .utility) {
-                // Profile is auxiliary: refresh failures never change the completed Memory write
-                // result and never enter the normal chat error path.
-                _ = try? await manager.refreshIfNeeded(scopeID: scopeID)
-            }
+            // Chat invokes completed-turn processing in its own background Task. Keeping this
+            // child work structured prevents it from being abandoned when the app suspends,
+            // while the fail-open boundary preserves the successful Memory write result.
+            _ = try? await profileManager.refreshIfNeeded(scopeID: turn.scopeID)
         }
         return result
     }
