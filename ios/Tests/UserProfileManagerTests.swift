@@ -21,7 +21,10 @@ final class UserProfileManagerTests: XCTestCase {
             memory(401, kind: .preference, text: "用户喜欢旧偏好。", status: .superseded),
             memory(402, kind: .recentState, text: "用户近期正在复习已过期内容。", ageDays: 20, expiresInDays: -1),
             memory(403, kind: .durableFact, text: "用户的 API key 是 sk-sensitive。"),
-            memory(404, kind: .event, text: "用户已经完成项目 A。", ageDays: 1),
+            memory(
+                404, kind: .event, text: "用户已经完成项目 A。", ageDays: 1,
+                importance: 1, confidence: 1, reinforcementCount: 5
+            ),
             memory(405, kind: .preference, text: "用户不再偏好慢节奏电影，更喜欢节奏紧凑的电影。", ageDays: 1, reinforcementCount: 5)
         ]
 
