@@ -107,6 +107,7 @@ final class MemoryBackfillTests: XCTestCase {
         let container = try makeContainer()
         let context = ModelContext(container)
         let conversation = Conversation(title: "history")
+        conversation.systemPrompt = "preserve-system"
         context.insert(conversation)
         addTurn(to: conversation, context: context, user: "我是建筑学本科生。", assistant: "明白。", at: date(2024, 1, 1))
         try context.save()
@@ -130,6 +131,48 @@ final class MemoryBackfillTests: XCTestCase {
         XCTAssertEqual(second.skippedAlreadyProcessed, 1)
         let calls = await extractor.calls()
         XCTAssertEqual(calls, 1)
+        let verificationContext = ModelContext(container)
+        let persisted = try XCTUnwrap(try verificationContext.fetch(FetchDescriptor<Conversation>()).first)
+        XCTAssertEqual(persisted.title, "history")
+        XCTAssertEqual(persisted.systemPrompt, "preserve-system")
+        XCTAssertEqual(persisted.messages.count, 2)
+        XCTAssertEqual(Set(persisted.messages.map(\.content)), ["我是建筑学本科生。", "明白。"])
+    }
+
+    func testMultipleConversationsProcessInEvidenceOrderAndReachLatestState() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        for (title, text, date) in [
+            ("created-last", "我现在更喜欢节奏紧凑的电影。", self.date(2025, 1, 1)),
+            ("created-first", "我喜欢慢节奏电影。", self.date(2024, 1, 1)),
+            ("created-middle", "我还是喜欢慢节奏电影。", self.date(2024, 6, 1))
+        ] {
+            let conversation = Conversation(title: title)
+            context.insert(conversation)
+            addTurn(to: conversation, context: context, user: text, assistant: "知道了。", at: date)
+        }
+        try context.save()
+        let store = MemoryStore(modelContainer: container)
+        let extractor = BackfillScriptedExtractor(plans: [
+            .add(.preference, "用户偏好慢节奏电影。"),
+            .reinforceFirst,
+            .supersedeFirst(.preference, "用户偏好节奏紧凑的电影。")
+        ])
+        let processor = MemoryProcessor(store: store, extractor: extractor)
+        let coordinator = MemoryBackfillCoordinator(
+            scanner: HistoricalTurnScanner(modelContainer: container),
+            store: store,
+            processor: processor,
+            profileManager: UserProfileManager(store: store)
+        )
+        let result = await coordinator.start()
+        XCTAssertEqual(result.succeeded, 3)
+        let memories = try await store.listMemories(scopeID: MemoryScope.localDefault)
+        let active = memories.filter { $0.status == .active }
+        XCTAssertEqual(active.count, 1)
+        XCTAssertEqual(active.first?.canonicalText, "用户偏好节奏紧凑的电影。")
+        XCTAssertEqual(active.first?.lastConfirmedAt, date(2025, 1, 1))
+        XCTAssertEqual(memories.filter { $0.status == .superseded }.count, 1)
     }
 
     func testMaintenanceHoldDisablesReadyProfileAndReconcilesAfterRelease() async throws {
@@ -240,6 +283,8 @@ final class MemoryBackfillTests: XCTestCase {
 private actor BackfillScriptedExtractor: MemoryExtracting {
     enum Plan: Sendable {
         case add(MemoryKind, String)
+        case reinforceFirst
+        case supersedeFirst(MemoryKind, String)
     }
     nonisolated let modelName = "backfill-test"
     private var plans: [Plan]
@@ -253,10 +298,18 @@ private actor BackfillScriptedExtractor: MemoryExtracting {
         guard !plans.isEmpty else { throw MemoryProcessingError.networkError }
         let plan = plans.removeFirst()
         let operation: MemoryExtractionOperation = switch plan {
-        case .add(let kind, let text): .init(
-            action: "add", existingMemoryID: nil, kind: kind.rawValue,
-            canonicalText: text, importance: 0.8, confidence: 0.95
-        )
+        case .add(let kind, let text):
+            .init(action: "add", existingMemoryID: nil, kind: kind.rawValue,
+                  canonicalText: text, importance: 0.8, confidence: 0.95)
+        case .reinforceFirst:
+            guard let candidate = candidates.first else { throw MemoryProcessingError.validationRejected }
+            .init(action: "reinforce", existingMemoryID: candidate.id.uuidString,
+                  kind: candidate.kind.rawValue, canonicalText: candidate.canonicalText,
+                  importance: 0.85, confidence: 0.96)
+        case .supersedeFirst(let kind, let text):
+            guard let candidate = candidates.first else { throw MemoryProcessingError.validationRejected }
+            .init(action: "supersede", existingMemoryID: candidate.id.uuidString,
+                  kind: kind.rawValue, canonicalText: text, importance: 0.9, confidence: 0.97)
         }
         let response = MemoryExtractionResponse(schemaVersion: 1, operations: [operation])
         return .init(response: response, metrics: .init(
