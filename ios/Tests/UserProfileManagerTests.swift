@@ -296,7 +296,7 @@ final class UserProfileManagerTests: XCTestCase {
                 refreshed = value
                 break
             }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(refreshed?.payload.ongoing.map(\.text), ["用户正在开发 Memory 系统。"])
     }

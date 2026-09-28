@@ -57,7 +57,7 @@ final class UserProfileReadinessTests: XCTestCase {
         XCTAssertTrue([.dirty, .refreshing, .ready].contains(scheduledState))
         for _ in 0..<500 {
             if await manager.readiness() == .ready { break }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(10))
         }
         let finalState = await manager.readiness()
         let finalProfile = await manager.readyProfileForChat(now: now.addingTimeInterval(120))

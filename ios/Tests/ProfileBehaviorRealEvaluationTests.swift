@@ -19,7 +19,7 @@ final class ProfileBehaviorRealEvaluationTests: XCTestCase {
 
         for fixture in fixtures {
             let history = fixture.history.map { ChatMessage(role: $0.role, content: $0.content) }
-            let memoryContext = fixture.memory.map { fixture.makeMemoryContext($0) }
+            let memoryContext = fixture.memory.flatMap { fixture.makeMemoryContext($0) }
             let baselineMessages = ChatRequestAssembler.messages(
                 system: fixture.systemPrompt,
                 history: history,

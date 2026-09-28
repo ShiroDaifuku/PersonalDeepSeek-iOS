@@ -79,27 +79,40 @@ actor UserProfileManager {
         scopeID: String = MemoryScope.localDefault,
         now: Date = Date()
     ) async throws -> UserProfileRefreshResult {
-        let task: Task<UserProfileRefreshResult, Error>
-        let generation: Int
+        let (task, generation) = beginRefreshIfNeeded(scopeID: scopeID, now: now)
+        return try await completeRefresh(task: task, generation: generation, scopeID: scopeID, now: now)
+    }
+
+    private func beginRefreshIfNeeded(
+        scopeID: String,
+        now: Date
+    ) -> (Task<UserProfileRefreshResult, Error>, Int) {
         if let existing = refreshTask, let existingGeneration = refreshTaskGeneration {
-            task = existing
-            generation = existingGeneration
-        } else {
-            readinessState = .refreshing
-            generation = mutationGeneration
-            let store = self.store
-            let configuration = self.configuration
-            task = Task {
-                try await Self.reconcile(
-                    store: store,
-                    configuration: configuration,
-                    scopeID: scopeID,
-                    now: now
-                )
-            }
-            refreshTask = task
-            refreshTaskGeneration = generation
+            return (existing, existingGeneration)
         }
+        readinessState = .refreshing
+        let generation = mutationGeneration
+        let store = self.store
+        let configuration = self.configuration
+        let task = Task {
+            try await Self.reconcile(
+                store: store,
+                configuration: configuration,
+                scopeID: scopeID,
+                now: now
+            )
+        }
+        refreshTask = task
+        refreshTaskGeneration = generation
+        return (task, generation)
+    }
+
+    private func completeRefresh(
+        task: Task<UserProfileRefreshResult, Error>,
+        generation: Int,
+        scopeID: String,
+        now: Date
+    ) async throws -> UserProfileRefreshResult {
         do {
             let result = try await task.value
             if refreshTaskGeneration == generation {
@@ -118,9 +131,9 @@ actor UserProfileManager {
             if refreshTaskGeneration == generation {
                 refreshTask = nil
                 refreshTaskGeneration = nil
+                readySnapshot = nil
+                readinessState = .failed
             }
-            readySnapshot = nil
-            readinessState = .failed
             throw error
         }
     }
@@ -285,9 +298,14 @@ actor UserProfileManager {
     }
 
     private func scheduleRefresh(scopeID: String, now: Date) {
-        guard refreshTask == nil else { return }
+        let (task, generation) = beginRefreshIfNeeded(scopeID: scopeID, now: now)
         Task(priority: .utility) { [weak self] in
-            _ = try? await self?.refreshIfNeeded(scopeID: scopeID, now: now)
+            _ = try? await self?.completeRefresh(
+                task: task,
+                generation: generation,
+                scopeID: scopeID,
+                now: now
+            )
         }
     }
 
