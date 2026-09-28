@@ -206,12 +206,14 @@ actor UserProfileManager {
     func endMaintenanceHold(
         scopeID: String = MemoryScope.localDefault,
         now: Date = Date()
-    ) {
+    ) async {
         guard maintenanceHoldCount > 0 else { return }
         maintenanceHoldCount -= 1
         if maintenanceHoldCount == 0 {
             markDirty(scopeID: scopeID)
-            scheduleRefresh(scopeID: scopeID, now: now)
+            // The coordinator awaits exactly one final reconciliation before reporting that the
+            // maintenance run has ended. Normal chat remains independent of this task.
+            _ = try? await refreshIfNeeded(scopeID: scopeID, now: now)
         }
     }
 
