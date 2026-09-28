@@ -100,8 +100,8 @@ final class ProfileContextTests: XCTestCase {
         let memory = memoryContext(id: id(70), text: "用户偏好节奏紧凑的电影。")
         let output = build(
             profile(
-                preferences: [entry(71, "  用户偏好节奏紧凑的电影。 \n")],
-                durable: [entry(72, "用户是建筑学本科生。")]
+                durable: [entry(72, "用户是建筑学本科生。")],
+                preferences: [entry(71, "  用户偏好节奏紧凑的电影。 \n")]
             ),
             memory: memory
         )
