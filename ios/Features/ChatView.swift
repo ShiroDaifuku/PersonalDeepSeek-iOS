@@ -44,6 +44,7 @@ struct ChatView: View {
     @State private var streamingReasoningCount = 0
     @State private var streamingContent = ""
     @State private var scrollRequest = 0
+    @State private var didInitializeConversation = false
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -53,7 +54,7 @@ struct ChatView: View {
     private var presentedChat: some View {
         lifecycleChat
             .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
-            .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { confirmTask(action) }, onCancel: { cancelTask(action) }) }
+            .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { try await confirmTask(action) }, onCancel: { cancelTask(action) }) }
             .sheet(item: $pendingKnowledgeAction) { pending in KnowledgeToolConfirmationView(pending: pending, onConfirm: { confirmKnowledge(pending) }, onCancel: { pendingKnowledgeAction = nil }) }
             .fullScreenCover(isPresented: $showingCamera) { CameraPicker { data in if let data, let value = PendingAttachment.image(data: data, name: "camera.jpg") { attachments.append(value) } } }
             .fileImporter(isPresented: $showingFilePicker, allowedContentTypes: [.image, .plainText, .json, .pdf], allowsMultipleSelection: true) { result in importFiles(result) }
@@ -64,7 +65,8 @@ struct ChatView: View {
 
     private var lifecycleChat: some View {
         navigationChat
-            .onAppear { current = conversations.first; openPendingConversationIfNeeded() }
+            .onAppear { initializeConversationIfNeeded() }
+            .onChange(of: current?.id) { _, _ in requestScrollToBottom() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background, isStreaming, let current { LiveActivityManager.shared.start(title: current.title, kind: "generation", detail: toolStatus ?? "正在生成回答") }
             }
@@ -134,6 +136,7 @@ struct ChatView: View {
                 .onChange(of: orderedMessages.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: scrollRequest) { _, _ in scrollToBottom(proxy) }
             }
+            .id(conversation.id)
         } else {
             ContentUnavailableView("开始对话", systemImage: "sparkles", description: Text("对话、知识库和研究都在这台设备上编排。"))
         }
@@ -143,7 +146,7 @@ struct ChatView: View {
         if showingConversations {
             Color.black.opacity(0.22).ignoresSafeArea().onTapGesture { withAnimation(.easeOut(duration: 0.2)) { showingConversations = false } }
             HStack(spacing: 0) {
-                ConversationSidebarView(selection: $current, defaultModel: defaultModel, isThinking: isStreaming, animationActive: scenePhase == .active) {
+                ConversationSidebarView(selection: $current, isThinking: isStreaming, animationActive: scenePhase == .active) {
                     withAnimation(.easeOut(duration: 0.2)) { showingConversations = false }
                 }
                 .frame(width: min(UIScreen.main.bounds.width * 0.86, 350))
@@ -186,18 +189,31 @@ struct ChatView: View {
         withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
     }
 
+    @MainActor private func requestScrollToBottom() {
+        scrollRequest &+= 1
+    }
+
+    @MainActor private func initializeConversationIfNeeded() {
+        guard !didInitializeConversation else { return }
+        didInitializeConversation = true
+        // A cold launch starts in an unsaved new-chat state. The Conversation is
+        // created lazily by send(), so opening an existing chat without sending
+        // first never leaves an empty conversation in the sidebar.
+        _ = openPendingConversationIfNeeded()
+    }
+
     @MainActor private func selectManualTool(_ tool: ComposerToolMode) {
         manualTool = tool
-        if tool == .deepResearch {
-            if current == nil { createConversation(mode: "research") } else { current?.mode = "research"; try? context.save() }
-        }
         composerFocused = true
     }
 
     @MainActor private func createConversation(mode: String = "chat") { let value = Conversation(model: defaultModel, mode: mode); context.insert(value); current = value; try? context.save() }
-    private func openPendingConversationIfNeeded() {
-        guard let id = UserDefaults.standard.string(forKey: "pendingConversationID"), let uuid = UUID(uuidString: id), let conversation = conversations.first(where: { $0.id == uuid }) else { return }
+    @MainActor
+    @discardableResult
+    private func openPendingConversationIfNeeded() -> Bool {
+        guard let id = UserDefaults.standard.string(forKey: "pendingConversationID"), let uuid = UUID(uuidString: id), let conversation = conversations.first(where: { $0.id == uuid }) else { return false }
         UserDefaults.standard.removeObject(forKey: "pendingConversationID"); current = conversation
+        return true
     }
 
     private func send() {
@@ -232,6 +248,7 @@ struct ChatView: View {
         toolStatus = selectedManualTool.map { "正在准备\($0.title)…" } ?? (preferredTool == nil ? "正在连接模型…" : "正在准备所需工具…")
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
         let planningMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
+        let runtimeClockContext = RuntimeClockContext.current()
         streamTask = Task {
             var fullReasoning = ""
             var fullContent = ""
@@ -311,6 +328,7 @@ struct ChatView: View {
                         knowledgeContext: referenceSections.joined(separator: "\n\n"),
                         profileContext: profileContext,
                         memoryContext: retrievedMemoryContext,
+                        runtimeClockContext: runtimeClockContext,
                         newUserText: requestText,
                         imageDataURLs: imageDataURLs
                     )
@@ -395,15 +413,16 @@ struct ChatView: View {
         try? context.save()
     }
 
-    private func confirmTask(_ action: PendingTaskAction) {
-        guard let api = taskAPI else { errorText = "请先在设置中填写云端任务访问令牌"; pendingTaskAction = nil; return }
-        Task {
-            do {
-                switch action.mode { case .create: _ = try await api.create(action.draft); case .edit(let task): _ = try await api.update(task, draft: action.draft, enabled: action.enabled) }
-                appendAssistant(action.mode == .create ? "定时任务已创建。你可以在“任务”页暂停、编辑或查看执行记录。" : "定时任务已更新。")
-            } catch { errorText = error.localizedDescription }
-            pendingTaskAction = nil
+    @MainActor private func confirmTask(_ action: PendingTaskAction) async throws {
+        guard let api = taskAPI else {
+            throw TaskConfirmationError.missingCloudConfiguration
         }
+        switch action.mode {
+        case .create: _ = try await api.create(action.draft)
+        case .edit(let task): _ = try await api.update(task, draft: action.draft, enabled: action.enabled)
+        }
+        appendAssistant(action.mode == .create ? "定时任务已创建。你可以在“任务”页暂停、编辑或查看执行记录。" : "定时任务已更新。")
+        pendingTaskAction = nil
     }
 
     private func cancelTask(_ action: PendingTaskAction) { pendingTaskAction = nil; appendAssistant(action.mode == .create ? "已取消创建定时任务。" : "已取消编辑定时任务。") }
@@ -653,8 +672,10 @@ private struct ReasoningStrip: View {
 
 private struct TaskToolConfirmationView: View {
     let action: PendingTaskAction
-    let onConfirm: () -> Void
+    let onConfirm: @MainActor () async throws -> Void
     let onCancel: () -> Void
+    @State private var isSaving = false
+    @State private var saveError: String?
     var body: some View {
         NavigationStack {
             Form {
@@ -664,8 +685,39 @@ private struct TaskToolConfirmationView: View {
                 Section("执行提示词") { Text(action.draft.prompt).textSelection(.enabled) }
                 Section("工具") { Text(action.draft.tools.joined(separator: "、")) }
                 if !action.draft.knowledgeBaseIDs.isEmpty { Section("动态知识库") { Text("任务运行时会检索 \(action.draft.knowledgeBaseIDs.count) 个已同步知识库。") } }
+                if let saveError { Section { Label(saveError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) } }
                 Section { Text("确认后才会写入云端。任务只会访问你在资料库页明确开启并完成同步的知识库。") }.font(.caption).foregroundStyle(.secondary)
-            }.navigationTitle("确认定时任务").toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消", role: .cancel, action: onCancel) }; ToolbarItem(placement: .confirmationAction) { Button("确认保存", action: onConfirm) } }
+            }
+            .navigationTitle("确认定时任务")
+            .interactiveDismissDisabled(isSaving)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消", role: .cancel, action: onCancel).disabled(isSaving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(action: save) {
+                        if isSaving { ProgressView().controlSize(.small) } else { Text("确认保存") }
+                    }
+                    .disabled(isSaving)
+                }
+            }
+        }
+    }
+
+    @MainActor private func save() {
+        guard !isSaving else { return }
+        isSaving = true
+        saveError = nil
+        Task { @MainActor in
+            do { try await onConfirm() }
+            catch { saveError = error.localizedDescription; isSaving = false }
+        }
+    }
+}
+
+private enum TaskConfirmationError: LocalizedError {
+    case missingCloudConfiguration
+    var errorDescription: String? {
+        switch self {
+        case .missingCloudConfiguration: "请先在设置中填写云端任务服务地址和访问令牌。"
         }
     }
 }

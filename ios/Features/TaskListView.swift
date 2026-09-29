@@ -24,7 +24,12 @@ struct TaskListView: View {
                     LabeledContent("计划", value: draft.schedule.expression); LabeledContent("时区", value: draft.schedule.timezone)
                     Text(draft.prompt)
                     if !draft.knowledgeBaseIDs.isEmpty { Label("运行时检索 \(draft.knowledgeBaseIDs.count) 个已同步知识库", systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary) }
-                    HStack { Button("确认保存") { confirm(draft) }; Button("取消", role: .cancel) { self.draft = nil } }
+                    HStack {
+                        Button { confirm(draft) } label: {
+                            if working { ProgressView().controlSize(.small) } else { Text("确认保存") }
+                        }.disabled(working)
+                        Button("取消", role: .cancel) { self.draft = nil }.disabled(working)
+                    }
                 }
             }
             Section("全部任务") {
@@ -40,7 +45,15 @@ struct TaskListView: View {
     }
     private var api: TaskAPI? { guard let url = URL(string: cloudServiceURL), !cloudServiceURL.isEmpty, !userID.isEmpty else { return nil }; return TaskAPI(base: url, userID: userID) }
     private func parse() { guard let api else { errorText = "请先在设置中配置云端任务服务"; return }; working = true; Task { do { var value = try await api.parse(naturalLanguage); let words = ["笔记", "文档", "知识库", "资料库"]; if words.contains(where: naturalLanguage.contains) { value.knowledgeBaseIDs = Array(LocalKnowledgeCloudSync.enabledIDs).sorted() }; draft = value } catch { errorText = error.localizedDescription }; working = false } }
-    private func confirm(_ value: TaskDraft) { guard let api else { return }; Task { do { _ = try await api.create(value); draft = nil; naturalLanguage = ""; await load() } catch { errorText = error.localizedDescription } } }
+    private func confirm(_ value: TaskDraft) {
+        guard let api else { errorText = "请先在设置中配置云端任务服务"; return }
+        working = true; errorText = nil
+        Task {
+            do { _ = try await api.create(value); draft = nil; naturalLanguage = ""; await load() }
+            catch { errorText = error.localizedDescription }
+            working = false
+        }
+    }
     private func toggle(_ task: RemoteTask, _ enabled: Bool) { guard let api else { return }; Task { do { _ = try await api.setEnabled(task, enabled); await load() } catch { errorText = error.localizedDescription } } }
     private func remove(_ task: RemoteTask) { guard let api else { return }; Task { do { try await api.delete(task); await load() } catch { errorText = error.localizedDescription } } }
     private var alarmIDs: Set<String> { Set(deviceAlarmTaskIDs.split(separator: ",").map(String.init)) }

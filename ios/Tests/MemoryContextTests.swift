@@ -23,6 +23,28 @@ final class MemoryContextTests: XCTestCase {
         XCTAssertEqual(assembled, original)
     }
 
+    func testRuntimeClockIsInsertedImmediatelyBeforeCurrentUserWithoutChangingStablePrefix() throws {
+        let history = [ChatMessage(role: "assistant", content: "earlier")]
+        let original = MessagePrefix.stable(
+            system: "system", history: history, newUserText: "what time is it?"
+        )
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Hong_Kong"))
+        let context = RuntimeClockContext.current(
+            now: Date(timeIntervalSince1970: 0), timeZone: timeZone
+        )
+        let messages = ChatRequestAssembler.messages(
+            system: "system", history: history, memoryContext: nil,
+            runtimeClockContext: context, newUserText: "what time is it?"
+        )
+
+        XCTAssertEqual(messages.map(\.role), ["system", "assistant", "system", "user"])
+        XCTAssertEqual(Array(messages.prefix(2)), Array(original.prefix(2)))
+        XCTAssertEqual(messages.last, original.last)
+        XCTAssertTrue(messages[2].content.contains("1970-01-01T08:00:00+08:00"))
+        XCTAssertTrue(messages[2].content.contains("Asia/Hong_Kong"))
+        XCTAssertTrue(messages[2].content.contains("1970-01-01T00:00:00Z"))
+    }
+
     func testRelevantMemoryIsInsertedAfterHistoryAndBeforeCurrentUser() throws {
         let history = [ChatMessage(role: "assistant", content: "earlier answer")]
         let built = MemoryContextBuilder.build(

@@ -248,6 +248,7 @@ enum ChatRequestAssembler {
         knowledgeContext: String? = nil,
         profileContext: ProfileContextSnapshot? = nil,
         memoryContext: MemoryContextSnapshot?,
+        runtimeClockContext: RuntimeClockContext? = nil,
         newUserText: String,
         imageDataURLs: [String] = []
     ) -> [APIMessage] {
@@ -267,7 +268,45 @@ enum ChatRequestAssembler {
                 at: max(0, messages.count - 1)
             )
         }
+        if let runtimeClockContext {
+            messages.insert(
+                APIMessage(role: "system", content: runtimeClockContext.messageContent),
+                at: max(0, messages.count - 1)
+            )
+        }
         return messages
+    }
+}
+
+struct RuntimeClockContext: Sendable, Equatable {
+    let localDateTime: String
+    let utcDateTime: String
+    let timeZoneIdentifier: String
+
+    var messageContent: String {
+        """
+        Application runtime clock for this request. Treat this clock as authoritative when interpreting dates and relative terms such as today, tomorrow, yesterday, and now. Do not claim that the current date is unavailable.
+        Local datetime: \(localDateTime)
+        IANA time zone: \(timeZoneIdentifier)
+        UTC datetime: \(utcDateTime)
+        """
+    }
+
+    static func current(now: Date = Date(), timeZone: TimeZone = .current) -> RuntimeClockContext {
+        let local = DateFormatter()
+        local.calendar = Calendar(identifier: .gregorian)
+        local.locale = Locale(identifier: "en_US_POSIX")
+        local.timeZone = timeZone
+        local.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXX (EEEE)"
+
+        let utc = ISO8601DateFormatter()
+        utc.timeZone = TimeZone(secondsFromGMT: 0)
+        utc.formatOptions = [.withInternetDateTime]
+        return RuntimeClockContext(
+            localDateTime: local.string(from: now),
+            utcDateTime: utc.string(from: now),
+            timeZoneIdentifier: timeZone.identifier
+        )
     }
 }
 

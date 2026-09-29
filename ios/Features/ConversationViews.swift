@@ -5,7 +5,6 @@ struct ConversationSidebarView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @Binding var selection: Conversation?
-    let defaultModel: String
     let isThinking: Bool
     let animationActive: Bool
     let onClose: () -> Void
@@ -61,7 +60,8 @@ struct ConversationSidebarView: View {
     private var researchConversations: [Conversation] { filtered.filter { $0.mode == "research" } }
 
     private func create() {
-        let conversation = Conversation(model: defaultModel); context.insert(conversation); selection = conversation; try? context.save(); onClose()
+        selection = nil
+        onClose()
     }
 
     private func remove(_ conversation: Conversation) {
