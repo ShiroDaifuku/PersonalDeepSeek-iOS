@@ -285,6 +285,16 @@ struct ResearchSource: Identifiable, Equatable, Sendable {
     }
 }
 
+enum ResearchProvider: String, Codable, Sendable {
+    case brave
+    case bingRSS = "bing_rss"
+}
+
+struct ResearchGatherResult: Sendable, Equatable {
+    let providerUsed: ResearchProvider
+    let sources: [ResearchSource]
+}
+
 enum LocalResearchError: LocalizedError, Sendable {
     case invalidQuery, searchFailed(Int), invalidPage, pageTooLarge, noResults
     case unsafeURL, dnsResolutionFailed, dnsResolutionTimedOut, tooManyRedirects, unsupportedContentType
@@ -328,7 +338,12 @@ final class LocalResearchService: Sendable {
     }
 
     func gather(query: String, limit: Int = 6) async throws -> [ResearchSource] {
-        let rows = try await search(query: query, limit: limit)
+        try await gatherWithMetadata(query: query, limit: limit).sources
+    }
+
+    func gatherWithMetadata(query: String, limit: Int = 6) async throws -> ResearchGatherResult {
+        let searched = try await searchWithProvider(query: query, limit: limit)
+        let rows = searched.sources
         let gathered = try await withThrowingTaskGroup(of: ResearchSource.self) { group in
             for row in rows {
                 group.addTask {
@@ -346,19 +361,26 @@ final class LocalResearchService: Sendable {
             }
         }
         guard !gathered.isEmpty else { throw LocalResearchError.noResults }
-        return gathered
+        return ResearchGatherResult(providerUsed: searched.providerUsed, sources: gathered)
     }
 
     func search(query: String, limit: Int = 6) async throws -> [ResearchSource] {
+        try await searchWithProvider(query: query, limit: limit).sources
+    }
+
+    private func searchWithProvider(query: String, limit: Int) async throws -> ResearchGatherResult {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.count <= 500 else { throw LocalResearchError.invalidQuery }
         if let key = searchAPIKey(), !key.isEmpty {
-            do { let rows = try await braveSearch(query: value, limit: limit, key: key); if !rows.isEmpty { return rows } }
+            do {
+                let rows = try await braveSearch(query: value, limit: limit, key: key)
+                if !rows.isEmpty { return .init(providerUsed: .brave, sources: rows) }
+            }
             catch is CancellationError { throw CancellationError() }
             catch { /* Fall back to the no-key provider below. */ }
         }
         try Task.checkCancellation()
-        return try await bingRSSSearch(query: value, limit: limit)
+        return .init(providerUsed: .bingRSS, sources: try await bingRSSSearch(query: value, limit: limit))
     }
 
     private func braveSearch(query: String, limit: Int, key: String) async throws -> [ResearchSource] {
