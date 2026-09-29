@@ -49,75 +49,12 @@ private actor FetchProbe {
     func snapshot() -> (Int, [String]) { (maximumActive, completionOrder) }
 }
 
-private struct URLProtocolStubResponse: Sendable {
-    let statusCode: Int
-    let headers: [String: String]
-    let data: Data
-}
-
-private final class URLProtocolStubRegistry: @unchecked Sendable {
-    static let shared = URLProtocolStubRegistry()
-    typealias Handler = @Sendable (URLRequest) throws -> URLProtocolStubResponse
-
+private final class RedirectDecisionRecorder: @unchecked Sendable {
     private let lock = NSLock()
-    private var handler: Handler?
-    private var requestedURLs: [URL] = []
+    private var storedRequest: URLRequest?
 
-    func install(_ handler: @escaping Handler) {
-        lock.withLock {
-            self.handler = handler
-            requestedURLs = []
-        }
-    }
-
-    func reset() {
-        lock.withLock {
-            handler = nil
-            requestedURLs = []
-        }
-    }
-
-    func response(for request: URLRequest) throws -> URLProtocolStubResponse {
-        try lock.withLock {
-            if let url = request.url { requestedURLs.append(url) }
-            guard let handler else { throw ResearchTestError.network }
-            return try handler(request)
-        }
-    }
-
-    func requestCount() -> Int { lock.withLock { requestedURLs.count } }
-}
-
-private final class ProductionRedirectURLProtocol: URLProtocol, @unchecked Sendable {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        do {
-            let stub = try URLProtocolStubRegistry.shared.response(for: request)
-            guard let url = request.url,
-                  let response = HTTPURLResponse(
-                    url: url,
-                    statusCode: stub.statusCode,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: stub.headers
-                  ) else { throw ResearchTestError.network }
-
-            if LocalResearchService.isRedirect(stub.statusCode),
-               let location = stub.headers.first(where: { $0.key.caseInsensitiveCompare("location") == .orderedSame })?.value,
-               let destination = URL(string: location, relativeTo: url)?.absoluteURL {
-                client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: destination), redirectResponse: response)
-                return
-            }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            if !stub.data.isEmpty { client?.urlProtocol(self, didLoad: stub.data) }
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
+    func record(_ request: URLRequest?) { lock.withLock { storedRequest = request } }
+    func value() -> URLRequest? { lock.withLock { storedRequest } }
 }
 
 final class LocalResearchTests: XCTestCase {
@@ -269,32 +206,29 @@ final class LocalResearchTests: XCTestCase {
         await assertUnsafeFetch(service, source: Self.source("https://start.example/"))
     }
 
-    func testProductionURLSessionDelegateStopsRedirectBeforePolicyRevalidation() async {
-        URLProtocolStubRegistry.shared.install { request in
-            if request.url?.host == "start.example" {
-                return URLProtocolStubResponse(
-                    statusCode: 302,
-                    headers: ["Location": "https://127.0.0.1/admin"],
-                    data: Data()
-                )
-            }
-            return URLProtocolStubResponse(
-                statusCode: 200,
-                headers: ["Content-Type": "text/html"],
-                data: Data("private content".utf8)
-            )
-        }
-        defer { URLProtocolStubRegistry.shared.reset() }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [ProductionRedirectURLProtocol.self]
-        let productionFetcher = ResearchHTTPFetcherFactory.noRedirect(configuration: configuration)
-        let service = makeService(
-            resolver: MockDNSResolver(records: ["start.example": [Self.publicIP]]),
-            pageFetcher: productionFetcher
-        )
+    func testProductionRedirectDelegateRefusesAutomaticRedirect() {
+        let delegate = ResearchNoRedirectDelegate()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let originalURL = URL(string: "https://start.example/")!
+        let redirectURL = URL(string: "https://127.0.0.1/admin")!
+        let task = session.dataTask(with: originalURL)
+        let response = HTTPURLResponse(
+            url: originalURL,
+            statusCode: 302,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": redirectURL.absoluteString]
+        )!
+        let decision = RedirectDecisionRecorder()
 
-        await assertUnsafeFetch(service, source: Self.source("https://start.example/"))
-        XCTAssertEqual(URLProtocolStubRegistry.shared.requestCount(), 1)
+        delegate.urlSession(
+            session,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: URLRequest(url: redirectURL)
+        ) { decision.record($0) }
+
+        XCTAssertNil(decision.value())
     }
 
     func testExcessiveRedirectsAreRejected() async {
@@ -501,6 +435,23 @@ final class LocalResearchTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    func testRealPublicNetworkingSmokeWhenEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["RUN_RESEARCH_NETWORK_SMOKE"] == "1" else {
+            throw XCTSkip("Set RUN_RESEARCH_NETWORK_SMOKE=1 for the Apple networking smoke test")
+        }
+        let service = LocalResearchService(searchAPIKey: { nil })
+
+        let html = try await service.fetch(Self.source("https://example.com/"))
+        XCTAssertFalse(html.pageText.isEmpty)
+
+        let redirected = try await service.fetch(Self.source("https://apple.com/"))
+        XCTAssertEqual(redirected.url.host, "www.apple.com")
+        XCTAssertFalse(redirected.pageText.isEmpty)
+
+        let searchRows = try await service.search(query: "Apple Swift concurrency", limit: 2)
+        XCTAssertFalse(searchRows.isEmpty)
     }
 
     func testEvidenceUsesStableNumberedCitations() {

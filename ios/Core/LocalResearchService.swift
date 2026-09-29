@@ -44,7 +44,7 @@ final class URLSessionResearchHTTPFetcher: ResearchHTTPFetching, @unchecked Send
     }
 }
 
-private final class ResearchNoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class ResearchNoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
