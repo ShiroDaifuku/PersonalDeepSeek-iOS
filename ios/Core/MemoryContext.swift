@@ -247,6 +247,7 @@ enum ChatRequestAssembler {
         history: [ChatMessage],
         knowledgeContext: String? = nil,
         profileContext: ProfileContextSnapshot? = nil,
+        toolHistoryContext: ToolHistoryContextSnapshot? = nil,
         memoryContext: MemoryContextSnapshot?,
         runtimeClockContext: RuntimeClockContext? = nil,
         newUserText: String,
@@ -261,6 +262,15 @@ enum ChatRequestAssembler {
         )
         if let profileContext {
             messages.insert(APIMessage(role: "system", content: profileContext.messageContent), at: 1)
+        }
+        if let toolHistoryContext {
+            // MessagePrefix places current-turn tool evidence after the complete conversation
+            // history. Historical tool results belong immediately before that evidence.
+            let insertionIndex = min(messages.count - 1, 1 + history.count + (profileContext == nil ? 0 : 1))
+            messages.insert(
+                APIMessage(role: "system", content: toolHistoryContext.messageContent),
+                at: max(1, insertionIndex)
+            )
         }
         if let memoryContext {
             messages.insert(

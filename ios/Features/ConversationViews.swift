@@ -65,8 +65,16 @@ struct ConversationSidebarView: View {
     }
 
     private func remove(_ conversation: Conversation) {
-        if selection?.id == conversation.id { selection = conversations.first(where: { $0.id != conversation.id }) }
-        context.delete(conversation); try? context.save()
+        do {
+            try ToolExecutionCleanup.deleteRecords(conversationID: conversation.id, in: context)
+            context.delete(conversation)
+            try context.save()
+            if selection?.id == conversation.id {
+                selection = conversations.first(where: { $0.id != conversation.id })
+            }
+        } catch {
+            context.rollback()
+        }
     }
 }
 
