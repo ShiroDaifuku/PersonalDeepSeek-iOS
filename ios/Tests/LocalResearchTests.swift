@@ -166,7 +166,8 @@ final class LocalResearchTests: XCTestCase {
         ]))
 
         let publicURL = URL(string: "https://public.example/article")!
-        XCTAssertEqual(try await policy.validate(publicURL), publicURL)
+        let validatedURL = try await policy.validate(publicURL)
+        XCTAssertEqual(validatedURL, publicURL)
         await assertUnsafeURL(URL(string: "https://private.example/")!, policy: policy)
         await assertUnsafeURL(URL(string: "https://mixed.example/")!, policy: policy)
     }
