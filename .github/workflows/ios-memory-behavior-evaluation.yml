@@ -18,6 +18,7 @@ jobs:
     env:
       RUN_REAL_MEMORY_BEHAVIOR_EVALUATION: "1"
       RUN_REAL_PROFILE_BEHAVIOR_EVALUATION: "1"
+      RUN_REAL_TOOL_HISTORY_EVALUATION: "1"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
     steps:
@@ -85,9 +86,11 @@ jobs:
                       environment = value.setdefault("EnvironmentVariables", {})
                       environment["RUN_REAL_MEMORY_BEHAVIOR_EVALUATION"] = "1"
                       environment["RUN_REAL_PROFILE_BEHAVIOR_EVALUATION"] = "1"
+                      environment["RUN_REAL_TOOL_HISTORY_EVALUATION"] = "1"
                       environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
                       environment["MEMORY_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/memory-behavior-report"
                       environment["PROFILE_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/memory-behavior-report"
+                      environment["TOOL_HISTORY_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/memory-behavior-report"
                       injected += 1
                   for child in value.values():
                       visit(child)
@@ -127,6 +130,18 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/profile-behavior-evaluation.log"
 
+      - name: Run real DeepSeek persisted tool history evaluation
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath "$RUNNER_TEMP/ToolHistoryEvaluation.xcresult" \
+            -only-testing:PersonalDeepSeekTests/ToolHistoryRealEvaluationTests/testPersistedToolHistoryBehaviorAgainstRealDeepSeek \
+            test-without-building \
+            | tee "$RUNNER_TEMP/tool-history-evaluation.log"
+
       - name: Collect behavior report
         if: always()
         run: |
@@ -135,10 +150,13 @@ jobs:
           cp "$RUNNER_TEMP/memory-behavior-build.log" "$RUNNER_TEMP/memory-behavior-report/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-behavior-evaluation.log" "$RUNNER_TEMP/memory-behavior-report/" 2>/dev/null || true
           cp "$RUNNER_TEMP/profile-behavior-evaluation.log" "$RUNNER_TEMP/memory-behavior-report/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/memory-behavior-report/" 2>/dev/null || true
           test -f "$RUNNER_TEMP/memory-behavior-report/memory-behavior-evaluation.json"
           test -f "$RUNNER_TEMP/memory-behavior-report/memory-behavior-evaluation.md"
           test -f "$RUNNER_TEMP/memory-behavior-report/profile-behavior-evaluation.json"
           test -f "$RUNNER_TEMP/memory-behavior-report/profile-behavior-evaluation.md"
+          test -f "$RUNNER_TEMP/memory-behavior-report/tool-history-evaluation.json"
+          test -f "$RUNNER_TEMP/memory-behavior-report/tool-history-evaluation.md"
 
       - name: Upload behavior report
         if: always()
