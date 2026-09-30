@@ -201,6 +201,11 @@ private actor RealToolHistoryClient {
     let apiKey: String
     let model: String
 
+    init(apiKey: String, model: String) {
+        self.apiKey = apiKey
+        self.model = model
+    }
+
     func complete(messages: [APIMessage]) async throws -> String {
         var request = URLRequest(url: URL(string: "https://api.deepseek.com/chat/completions")!)
         request.httpMethod = "POST"
