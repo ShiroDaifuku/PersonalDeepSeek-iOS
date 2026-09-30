@@ -60,12 +60,12 @@ final class ToolExecutionTests: XCTestCase {
     func testCurrentExecutionIsExcludedButPriorSuccessfulExecutionIsReplayed() async throws {
         let service = ToolExecutionService(modelContainer: try makeContainer())
         let conversationID = UUID()
-        let prior = try await succeeded(service: service, conversationID: conversationID, query: "prior")
-        let current = try await succeeded(service: service, conversationID: conversationID, query: "current")
+        let prior = try await succeeded(service: service, conversationID: conversationID, query: "INCLUDED-PRIOR-QUERY")
+        let current = try await succeeded(service: service, conversationID: conversationID, query: "EXCLUDED-CURRENT-TURN-QUERY")
         let context = await service.contextForChat(conversationID: conversationID, excludingIDs: [current.id])
         XCTAssertEqual(context?.executions.map(\.executionID), [prior.id])
-        XCTAssertTrue(context?.messageContent.contains("prior") == true)
-        XCTAssertFalse(context?.messageContent.contains("current") == true)
+        XCTAssertTrue(context?.messageContent.contains("INCLUDED-PRIOR-QUERY") == true)
+        XCTAssertFalse(context?.messageContent.contains("EXCLUDED-CURRENT-TURN-QUERY") == true)
     }
 
     func testConversationIsolationAndRestartStyleRead() async throws {
