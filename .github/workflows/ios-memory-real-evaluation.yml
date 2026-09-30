@@ -19,6 +19,7 @@ jobs:
       RUN_REAL_PROFILE_BEHAVIOR_EVALUATION: "1"
       RUN_REAL_MEMORY_BACKFILL_EVALUATION: "1"
       RUN_REAL_MEMORY_EVALUATION: "1"
+      RUN_REAL_TOOL_HISTORY_EVALUATION: "1"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
     steps:
@@ -88,10 +89,12 @@ jobs:
                       environment["RUN_REAL_PROFILE_BEHAVIOR_EVALUATION"] = "1"
                       environment["RUN_REAL_MEMORY_BACKFILL_EVALUATION"] = "1"
                       environment["RUN_REAL_MEMORY_EVALUATION"] = "1"
+                      environment["RUN_REAL_TOOL_HISTORY_EVALUATION"] = "1"
                       environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
                       environment["PROFILE_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
                       environment["MEMORY_BACKFILL_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
                       environment["MEMORY_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
+                      environment["TOOL_HISTORY_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
                       injected += 1
                   for child in value.values():
                       visit(child)
@@ -144,6 +147,19 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/memory-live-extractor-evaluation.log"
 
+      - name: Run real DeepSeek persisted tool history evaluation
+        if: always()
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath "$RUNNER_TEMP/ToolHistoryEvaluation.xcresult" \
+            -only-testing:PersonalDeepSeekTests/ToolHistoryRealEvaluationTests/testPersistedToolHistoryBehaviorAgainstRealDeepSeek \
+            test-without-building \
+            | tee "$RUNNER_TEMP/tool-history-evaluation.log"
+
       - name: Collect evaluation reports
         if: always()
         run: |
@@ -153,12 +169,15 @@ jobs:
           cp "$RUNNER_TEMP/profile-behavior-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
           cp "$RUNNER_TEMP/memory-backfill-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
           cp "$RUNNER_TEMP/memory-live-extractor-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
+          cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
           test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"
           test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.md"
           test -f "$RUNNER_TEMP/profile-behavior-report/memory-evaluation-report.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/memory-evaluation-report.md"
+          test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-evaluation.json"
+          test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-evaluation.md"
 
       - name: Upload evaluation report
         if: always()
