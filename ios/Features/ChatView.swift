@@ -253,7 +253,8 @@ struct ChatView: View {
         streamingReasoningPreview = ""; streamingReasoningCount = 0; streamingContent = ""; scrollRequest &+= 1
         toolStatus = selectedManualTool.map { "正在准备\($0.title)…" } ?? (preferredTool == nil ? "正在连接模型…" : "正在准备所需工具…")
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
-        let planningMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
+        let frozenSystem = conversation.systemPrompt
+        let planningMessages = MessagePrefix.stable(system: frozenSystem, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
         let runtimeClockContext = RuntimeClockContext.current()
         let frozenModel = conversation.model, frozenThinking = thinking, frozenEffort = effort
         let localAdapter = AgentLocalKnowledgeAdapter(bases: knowledgeBases)
@@ -442,7 +443,7 @@ struct ChatView: View {
                         excludingIDs: currentTurnToolExecutionIDs
                     )
                     let requestMessages = ChatRequestAssembler.messages(
-                        system: conversation.systemPrompt,
+                        system: frozenSystem,
                         history: history,
                         knowledgeContext: referenceSections.joined(separator: "\n\n"),
                         profileContext: profileContext,
@@ -466,7 +467,7 @@ struct ChatView: View {
                         enabledTools: nativeTools,
                         manualToolName: selectedManualTool == .webSearch ? "web_search" :
                             (selectedManualTool == .knowledge ? "local_knowledge_search" : nil),
-                        contextSnapshot: .init(baseSystem: conversation.systemPrompt, profile: profileContext,
+                        contextSnapshot: .init(baseSystem: frozenSystem, profile: profileContext,
                             history: agentHistory, priorToolHistory: toolHistoryContext,
                             atomicMemory: retrievedMemoryContext, runtimeClock: runtimeClockContext,
                             currentUser: requestText, images: imageDataURLs))
