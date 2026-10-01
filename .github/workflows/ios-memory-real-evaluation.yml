@@ -110,6 +110,7 @@ jobs:
                       environment["RUN_REAL_MEMORY_BACKFILL_EVALUATION"] = "1"
                       environment["RUN_REAL_MEMORY_EVALUATION"] = "1"
                       environment["RUN_REAL_TOOL_HISTORY_EVALUATION"] = "1"
+                      environment["RUN_REAL_TOOL_HISTORY_STABILIZATION"] = "1"
                       environment["RUN_REAL_NATIVE_AGENT_EVALUATION"] = "1"
                       environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
                       environment["PROFILE_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
@@ -180,6 +181,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -resultBundlePath "$RUNNER_TEMP/ToolHistoryEvaluation.xcresult" \
             -only-testing:PersonalDeepSeekTests/ToolHistoryRealEvaluationTests/testPersistedToolHistoryBehaviorAgainstRealDeepSeek \
+            -only-testing:PersonalDeepSeekTests/ToolHistoryStabilizationRealEvaluationTests/testRepeatedProductionBehavior \
             test-without-building \
             | tee "$RUNNER_TEMP/tool-history-evaluation.log"
 
@@ -217,6 +219,8 @@ jobs:
           fi
           test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-evaluation.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-evaluation.md"
+          test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-stabilization.json"
+          test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-stabilization.md"
           test -f "$RUNNER_TEMP/profile-behavior-report/native-agent-evaluation.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/native-agent-evaluation.md"
 

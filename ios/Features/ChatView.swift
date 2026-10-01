@@ -251,7 +251,8 @@ struct ChatView: View {
         try? context.save()
         input = ""; attachments = []; photoSelection = []; manualTool = nil; isStreaming = true; errorText = nil
         streamingReasoningPreview = ""; streamingReasoningCount = 0; streamingContent = ""; scrollRequest &+= 1
-        toolStatus = selectedManualTool.map { "正在准备\($0.title)…" } ?? (preferredTool == nil ? "正在连接模型…" : "正在准备所需工具…")
+        toolStatus = preferredTool == "web_search" || preferredTool == "search_local_knowledge" ? "正在处理…" :
+            (selectedManualTool.map { "正在准备\($0.title)…" } ?? (preferredTool == nil ? "正在连接模型…" : "正在准备所需工具…"))
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
         let frozenSystem = conversation.systemPrompt
         let planningMessages = MessagePrefix.stable(system: frozenSystem, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
@@ -483,7 +484,8 @@ struct ChatView: View {
                         case .finalAnswer: forceRender = true
                         case .toolExecutionStarted(_, let name): toolStatus = name == "web_search" ? "正在搜索网页…" : "正在查询本地资料…"
                         case .toolExecutionCompleted: toolStatus = "工具执行完成，正在整理回答…"
-                        case .toolCallStarted, .roundCompleted, .usage, .failure: break
+                        case .roundCompleted: toolStatus = "正在处理…"
+                        case .toolCallStarted, .usage, .failure: break
                         }
                         if forceRender || Date().timeIntervalSince(lastRender) >= 0.1 {
                             if !pendingReasoning.isEmpty {
@@ -703,7 +705,7 @@ private struct ThinkingStatusCard: View {
             ThinkingAvatar(isPlaying: animationActive, size: 58)
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 7) {
-                    Text("正在思考").font(.subheadline.weight(.semibold)).foregroundStyle(.tint)
+                    Text("正在处理").font(.subheadline.weight(.semibold)).foregroundStyle(.tint)
                     ProgressView().controlSize(.mini)
                     Spacer()
                 }
