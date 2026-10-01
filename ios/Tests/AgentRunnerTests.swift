@@ -154,10 +154,16 @@ enum AgentTestFixtures {
         let model = ScriptedAgentModel(rounds: [AgentTestFixtures.toolRound(),
             AgentTestFixtures.toolRound(id: "call_2"), AgentTestFixtures.finalRound])
         let executor = FixtureAgentExecutor()
+        let service = ToolExecutionService(modelContainer: try AgentTestFixtures.container())
+        let request = AgentTestFixtures.request()
         let events = try await AgentTestFixtures.collect(AgentRunner(model: model, executor: executor,
-            persistence: ToolExecutionService(modelContainer: try AgentTestFixtures.container())).events(for: AgentTestFixtures.request()))
+            persistence: service).events(for: request))
         let count = await executor.count(), captured = await model.captured()
         XCTAssertEqual(count, 1)
+        let audit = try await service.store.records(conversationID: request.conversationID)
+        XCTAssertEqual(audit.count, 2)
+        XCTAssertEqual(audit.first(where: { $0.toolCallID == "call_2" })?.errorCode, "identical_call_already_executed")
+        XCTAssertEqual(audit.first(where: { $0.toolCallID == "call_2" })?.status, .failed)
         XCTAssertTrue(captured[2].messages.last?.content.contains("identical_call_already_executed") == true)
         for event in events { if case .finalAnswer(_, _, let metrics) = event { XCTAssertEqual(metrics.tools.filter(\.physicallyExecuted).count, 1) } }
     }

@@ -140,6 +140,12 @@ struct AgentRunner: Sendable {
                 continuation.yield(.toolCallStarted(call.call, round: round))
                 let toolStart = clock.now
                 if successfulSignatures.contains(call.signature) {
+                    let blocked = try await persistence.begin(conversationID: request.conversationID,
+                        userMessageID: request.userMessageID, assistantMessageID: request.assistantMessageID,
+                        toolName: call.call.function.name, query: call.query, limit: call.limit,
+                        toolCallID: call.call.id, roundIndex: round)
+                    await persistence.fail(id: blocked.id, errorCode: "identical_call_already_executed")
+                    continuation.yield(.toolExecutionCompleted(blocked.id, status: .failed))
                     transcript.append(APIMessage(role: "tool", content: NativeToolResultSerializer.repeated, toolCallID: call.call.id))
                     metrics.tools.append(.init(round: round, toolName: call.call.function.name,
                         latencyMilliseconds: 0, physicallyExecuted: false, status: "repeat_blocked"))
