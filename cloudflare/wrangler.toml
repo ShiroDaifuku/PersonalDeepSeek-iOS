@@ -26,7 +26,7 @@ dead_letter_queue = "personal-deepseek-task-runs-dlq"
 [vars]
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_TASK_MODEL = "deepseek-flash"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-flash"
 FALLBACK_MODEL = "deepseek-flash"
 DAILY_RUN_LIMIT = "24"
 UNREAD_PAUSE_LIMIT = "5"

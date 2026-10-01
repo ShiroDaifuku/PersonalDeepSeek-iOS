@@ -7,6 +7,10 @@ on:
         description: Run native agent and persisted tool history only
         type: boolean
         default: false
+      research_calibration:
+        description: Include live Research token calibration
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,11 +25,12 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     env:
-      RUN_REAL_PROFILE_BEHAVIOR_EVALUATION: "1"
-      RUN_REAL_MEMORY_BACKFILL_EVALUATION: "1"
-      RUN_REAL_MEMORY_EVALUATION: "1"
+      RUN_REAL_PROFILE_BEHAVIOR_EVALUATION: ${{ inputs.native_only && '0' || '1' }}
+      RUN_REAL_MEMORY_BACKFILL_EVALUATION: ${{ inputs.native_only && '0' || '1' }}
+      RUN_REAL_MEMORY_EVALUATION: ${{ inputs.native_only && '0' || '1' }}
       RUN_REAL_TOOL_HISTORY_EVALUATION: "1"
       RUN_REAL_NATIVE_AGENT_EVALUATION: "1"
+      PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS: ${{ inputs.research_calibration && '1' || '0' }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
     steps:
@@ -73,7 +78,14 @@ jobs:
             | tee "$RUNNER_TEMP/memory-real-evaluation-build.log"
 
       - name: Run regular XCTest regression
-        if: inputs.native_only == true
+        env:
+          RUN_REAL_PROFILE_BEHAVIOR_EVALUATION: "0"
+          RUN_REAL_MEMORY_BACKFILL_EVALUATION: "0"
+          RUN_REAL_MEMORY_EVALUATION: "0"
+          RUN_REAL_TOOL_HISTORY_EVALUATION: "0"
+          RUN_REAL_TOOL_HISTORY_STABILIZATION: "0"
+          RUN_REAL_NATIVE_AGENT_EVALUATION: "0"
+          PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS: "0"
         working-directory: ios
         run: |
           set -o pipefail
@@ -106,12 +118,13 @@ jobs:
               if isinstance(value, dict):
                   if "TestBundlePath" in value:
                       environment = value.setdefault("EnvironmentVariables", {})
-                      environment["RUN_REAL_PROFILE_BEHAVIOR_EVALUATION"] = "1"
-                      environment["RUN_REAL_MEMORY_BACKFILL_EVALUATION"] = "1"
-                      environment["RUN_REAL_MEMORY_EVALUATION"] = "1"
+                      environment["RUN_REAL_PROFILE_BEHAVIOR_EVALUATION"] = os.environ["RUN_REAL_PROFILE_BEHAVIOR_EVALUATION"]
+                      environment["RUN_REAL_MEMORY_BACKFILL_EVALUATION"] = os.environ["RUN_REAL_MEMORY_BACKFILL_EVALUATION"]
+                      environment["RUN_REAL_MEMORY_EVALUATION"] = os.environ["RUN_REAL_MEMORY_EVALUATION"]
                       environment["RUN_REAL_TOOL_HISTORY_EVALUATION"] = "1"
                       environment["RUN_REAL_TOOL_HISTORY_STABILIZATION"] = "1"
                       environment["RUN_REAL_NATIVE_AGENT_EVALUATION"] = "1"
+                      environment["PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS"] = os.environ["PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS"]
                       environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
                       environment["PROFILE_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
                       environment["MEMORY_BACKFILL_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
@@ -197,6 +210,18 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/native-agent-evaluation.log"
 
+      - name: Run live research token calibration
+        if: always() && inputs.research_calibration == true && env.XCTESTRUN_PATH != ''
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/ResearchLiveCalibrationTests/testOptInResearchSynthesisAndTokenCalibration \
+            test-without-building \
+            | tee "$RUNNER_TEMP/research-token-calibration.log"
+
       - name: Collect evaluation reports
         if: always()
         run: |
@@ -209,6 +234,7 @@ jobs:
           cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
           cp "$RUNNER_TEMP/native-agent-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" || true
           cp "$RUNNER_TEMP/native-agent-unit-tests.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/research-token-calibration.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
           if [[ '${{ inputs.native_only }}' != 'true' ]]; then
             test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
             test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"

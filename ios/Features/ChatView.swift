@@ -230,7 +230,7 @@ struct ChatView: View {
         let selectedManualTool = manualTool
         let preferredTool = selectedManualTool?.preferredTool ?? AssistantIntentRouter.preferredTool(for: requestText)
         if current == nil { createConversation() }; guard let conversation = current else { return }
-        if selectedManualTool == .deepResearch { conversation.mode = "research" }
+        if preferredTool == "start_deep_search" { conversation.mode = "research" }
         let history = conversation.messages.sorted {
             $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt
         }
@@ -309,6 +309,8 @@ struct ChatView: View {
                     calls = []
                 }
                 var referenceSections: [String] = []
+                var researchQuestion: String?
+                var researchSources: [ResearchSource]?
                 for call in calls {
                     try Task.checkCancellation()
                     switch call {
@@ -342,8 +344,7 @@ struct ChatView: View {
                         toolStatus = "正在搜索并抓取可靠来源…"
                         conversation.mode = "research"
                         LiveActivityManager.shared.start(title: conversation.title, kind: "research", detail: "正在进行深度研究")
-                        let toolName = AssistantIntentRouter.isDeepResearchRequest(requestText) || selectedManualTool == .deepResearch
-                            ? "deep_research" : "web_search"
+                        let toolName = "deep_research"
                         let execution = try await toolExecutionService.begin(
                             conversationID: conversation.id,
                             userMessageID: user.id,
@@ -354,8 +355,8 @@ struct ChatView: View {
                         runningToolExecutionIDs.insert(execution.id)
                         currentTurnToolExecutionIDs.append(execution.id)
                         let gathered = try await LocalResearchService().gatherWithMetadata(query: query)
-                        let currentEvidence = LocalResearchService.evidencePrompt(question: query, sources: gathered.sources)
-                        referenceSections.append("Web research evidence:\n" + currentEvidence)
+                        researchQuestion = query
+                        researchSources = gathered.sources
                         let envelope = try ToolResultEnvelopeBuilder.webSearch(
                             toolName: toolName,
                             query: query,
@@ -367,7 +368,8 @@ struct ChatView: View {
 #if DEBUG
                         let persistedCharacters = (try? JSONEncoder.toolPersistence.encode(envelope))
                             .flatMap { String(data: $0, encoding: .utf8) }?.count ?? 0
-                        print("[ToolExecution] tool=\(toolName) id=\(execution.id) query_chars=\(query.count) provider=\(gathered.providerUsed.rawValue) sources=\(gathered.sources.count) persisted_chars=\(persistedCharacters) current_evidence_chars=\(currentEvidence.count)")
+                        let fetchedCharacters = gathered.sources.reduce(0) { $0 + $1.pageText.count }
+                        print("[ToolExecution] tool=\(toolName) id=\(execution.id) query_chars=\(query.count) provider=\(gathered.providerUsed.rawValue) sources=\(gathered.sources.count) persisted_chars=\(persistedCharacters) fetched_page_chars=\(fetchedCharacters)")
 #endif
                     case .createTask(let draft):
                         let execution = try await toolExecutionService.begin(
@@ -443,23 +445,52 @@ struct ChatView: View {
                         conversationID: conversation.id,
                         excludingIDs: currentTurnToolExecutionIDs
                     )
-                    let requestMessages = ChatRequestAssembler.messages(
-                        system: frozenSystem,
-                        history: history,
-                        knowledgeContext: referenceSections.joined(separator: "\n\n"),
-                        profileContext: profileContext,
-                        toolHistoryContext: toolHistoryContext,
-                        memoryContext: retrievedMemoryContext,
-                        runtimeClockContext: runtimeClockContext,
-                        newUserText: requestText,
-                        imageDataURLs: imageDataURLs
-                    )
+                    let currentKnowledgeContext = referenceSections.joined(separator: "\n\n")
+                    let requestMessages: [APIMessage]
+                    if let researchQuestion, let researchSources {
+                        let assembled = try ChatRequestAssembler.researchMessages(
+                            system: frozenSystem,
+                            history: history,
+                            researchQuestion: researchQuestion,
+                            researchSources: researchSources,
+                            knowledgeContext: currentKnowledgeContext,
+                            profileContext: profileContext,
+                            toolHistoryContext: toolHistoryContext,
+                            memoryContext: retrievedMemoryContext,
+                            runtimeClockContext: runtimeClockContext,
+                            newUserText: requestText,
+                            imageDataURLs: imageDataURLs
+                        )
+                        requestMessages = assembled.messages
+#if DEBUG
+                        let usage = assembled.usage
+                        print(
+                            "[ResearchBudget] text=\(usage.totalRetainedTextCharacters)/\(usage.maximumInputCharacters) " +
+                            "image_wire_chars=\(usage.protectedMultimodalPayloadCharacters) " +
+                            "headroom=\(usage.reservedHeadroomCharacters) history=\(usage.historyRetainedCharacters)/\(usage.historyOriginalCharacters) " +
+                            "evidence=\(usage.evidenceRetainedCharacters)/\(usage.evidenceOriginalCharacters) " +
+                            "sources=\(usage.sourceCount) truncated_sources=\(usage.truncatedSourceCount)"
+                        )
+#endif
+                    } else {
+                        requestMessages = ChatRequestAssembler.messages(
+                            system: frozenSystem,
+                            history: history,
+                            knowledgeContext: currentKnowledgeContext,
+                            profileContext: profileContext,
+                            toolHistoryContext: toolHistoryContext,
+                            memoryContext: retrievedMemoryContext,
+                            runtimeClockContext: runtimeClockContext,
+                            newUserText: requestText,
+                            imageDataURLs: imageDataURLs
+                        )
+                    }
 #if DEBUG
                     print("[ToolHistory] prior_count=\(toolHistoryContext?.executions.count ?? 0) chars=\(toolHistoryContext?.characterCount ?? 0) roles=\(requestMessages.map(\.role).joined(separator: ","))")
 #endif
                     var pendingReasoning = "", pendingContent = ""
                     var lastRender = Date.distantPast
-                    let nativeTools: [String] = preferredTool == "web_search" ? ["web_search"] :
+                    let nativeTools: [String] = researchSources != nil ? [] : preferredTool == "web_search" ? ["web_search"] :
                         (preferredTool == "search_local_knowledge" ? ["local_knowledge_search"] : [])
                     let agentRequest = AgentRequest(conversationID: conversation.id, userMessageID: user.id,
                         assistantMessageID: assistant.id, model: frozenModel, thinking: frozenThinking,
@@ -468,8 +499,9 @@ struct ChatView: View {
                         enabledTools: nativeTools,
                         manualToolName: selectedManualTool == .webSearch ? "web_search" :
                             (selectedManualTool == .knowledge ? "local_knowledge_search" : nil),
+                        budget: researchSources == nil ? .production : AgentLoopBudget(maxWallTimeSeconds: 610),
                         contextSnapshot: .init(baseSystem: frozenSystem, profile: profileContext,
-                            history: agentHistory, priorToolHistory: toolHistoryContext,
+                            history: agentHistory, priorToolHistory: researchSources == nil ? toolHistoryContext : toolHistoryContext.map { ToolHistoryContextBuilder.researchSafe($0) },
                             atomicMemory: retrievedMemoryContext, runtimeClock: runtimeClockContext,
                             currentUser: requestText, images: imageDataURLs))
                     let runner = AgentRunner(model: APIClient(), executor: ReadOnlyToolExecutor(localSearch: { query, limit in

@@ -241,7 +241,14 @@ enum PersonalContextDominanceFilter {
     }
 }
 
+struct ResearchAssembledRequest: Sendable, Equatable {
+    let messages: [APIMessage]
+    let usage: ResearchContextUsage
+}
+
 enum ChatRequestAssembler {
+    static let maximumResearchAuxiliaryKnowledgeCharacters = 4_000
+
     static func messages(
         system: String,
         history: [ChatMessage],
@@ -253,53 +260,171 @@ enum ChatRequestAssembler {
         newUserText: String,
         imageDataURLs: [String] = []
     ) -> [APIMessage] {
-        var messages = MessagePrefix.stable(
+        let orderedHistory = history.sorted { lhs, rhs in
+            lhs.createdAt == rhs.createdAt ? lhs.id.uuidString < rhs.id.uuidString : lhs.createdAt < rhs.createdAt
+        }.map { APIMessage(role: $0.role, content: $0.content) }
+        return assemble(
             system: system,
-            history: history,
+            history: orderedHistory,
             knowledgeContext: knowledgeContext,
+            profileContext: profileContext,
+            toolHistoryContext: toolHistoryContext,
+            memoryContext: memoryContext,
+            runtimeClockContext: runtimeClockContext,
             newUserText: newUserText,
             imageDataURLs: imageDataURLs
         )
-        if let profileContext {
-            messages.insert(APIMessage(role: "system", content: profileContext.messageContent), at: 1)
+    }
+
+    static func researchMessages(
+        system: String,
+        history: [ChatMessage],
+        researchQuestion: String,
+        researchSources: [ResearchSource],
+        knowledgeContext: String? = nil,
+        profileContext: ProfileContextSnapshot? = nil,
+        toolHistoryContext: ToolHistoryContextSnapshot? = nil,
+        memoryContext: MemoryContextSnapshot?,
+        runtimeClockContext: RuntimeClockContext? = nil,
+        newUserText: String,
+        imageDataURLs: [String] = [],
+        policy: ResearchContextBudgetPolicy = .chatDefault,
+        now: Date = Date(),
+        timeZone: TimeZone = .current
+    ) throws -> ResearchAssembledRequest {
+        let orderedHistory = history.sorted { lhs, rhs in
+            lhs.createdAt == rhs.createdAt ? lhs.id.uuidString < rhs.id.uuidString : lhs.createdAt < rhs.createdAt
+        }.map { ResearchHistoryMessage(role: $0.role, content: $0.content) }
+        let webEvidencePrefix: String
+        if let knowledgeContext, !knowledgeContext.isEmpty {
+            let marker = "\n[local knowledge truncated]"
+            let bounded = knowledgeContext.count <= maximumResearchAuxiliaryKnowledgeCharacters
+                ? knowledgeContext
+                : String(knowledgeContext.prefix(maximumResearchAuxiliaryKnowledgeCharacters - marker.count)) + marker
+            let uncited = ToolHistoryContextBuilder.nonCiteableSourceLabels(in: bounded)
+            webEvidencePrefix = "Local knowledge background (not a numbered web citation):\n" +
+                uncited + "\n\nWeb research evidence:\n"
+        } else {
+            webEvidencePrefix = "Web research evidence:\n"
         }
-        if let toolHistoryContext {
-            // MessagePrefix places current-turn tool evidence after the complete conversation
-            // history. Historical tool results belong immediately before that evidence.
-            let insertionIndex = min(messages.count - 1, 1 + history.count + (profileContext == nil ? 0 : 1))
-            messages.insert(
-                APIMessage(role: "system", content: toolHistoryContext.messageContent),
-                at: max(1, insertionIndex)
+
+        let systemContent = MessagePrefix.systemContent(system: system)
+        let toolEvidenceBase = MessagePrefix.toolEvidenceContent(webEvidencePrefix)
+        // Inline image data is a protected multimodal wire payload, not text
+        // context. It remains intact and is validated separately by APIClient.
+        let imagePayloadCharacters = imageDataURLs.reduce(into: 0) { total, value in total += value.count }
+        let currentRequestCharacters = newUserText.count
+        var mandatoryCharacters = systemContent.count
+        mandatoryCharacters += currentRequestCharacters
+        mandatoryCharacters += MessagePrefix.toolEvidenceFraming.count
+        mandatoryCharacters += 2
+        mandatoryCharacters += "Web research evidence:\n".count
+        var fixedCharacters = systemContent.count
+        fixedCharacters += currentRequestCharacters
+        fixedCharacters += toolEvidenceBase.count
+        fixedCharacters += profileContext?.messageContent.count ?? 0
+        fixedCharacters += toolHistoryContext?.messageContent.count ?? 0
+        fixedCharacters += memoryContext?.messageContent.count ?? 0
+        fixedCharacters += runtimeClockContext?.messageContent.count ?? 0
+        let researchToolHistory = toolHistoryContext.map { ToolHistoryContextBuilder.researchSafe($0) }
+        fixedCharacters -= toolHistoryContext?.messageContent.count ?? 0
+        fixedCharacters += researchToolHistory?.messageContent.count ?? 0
+        let budgeted = try ResearchContextBudgeter.prepare(
+            question: researchQuestion,
+            sources: researchSources,
+            history: orderedHistory,
+            fixedCharacterCount: fixedCharacters,
+            mandatoryCharacterCount: mandatoryCharacters,
+            policy: policy,
+            now: now,
+            timeZone: timeZone
+        )
+        let retainedHistory = budgeted.history.map { APIMessage(role: $0.role, content: $0.content) }
+        let finalKnowledgeContext = webEvidencePrefix + budgeted.evidencePrompt
+        let messages = assemble(
+            system: system,
+            history: retainedHistory,
+            knowledgeContext: finalKnowledgeContext,
+            profileContext: profileContext,
+            toolHistoryContext: researchToolHistory,
+            memoryContext: memoryContext,
+            runtimeClockContext: runtimeClockContext,
+            newUserText: newUserText,
+            imageDataURLs: imageDataURLs
+        )
+        let actualCharacters = messages.reduce(0) { $0 + $1.content.count }
+        guard actualCharacters <= policy.maximumInputCharacters else {
+            throw ResearchContextBudgetError.fixedContextExceedsBudget(
+                requiredCharacters: actualCharacters,
+                maximumInputCharacters: policy.maximumInputCharacters
             )
+        }
+        let usage = ResearchContextUsage(
+            maximumContextCharacters: budgeted.usage.maximumContextCharacters,
+            reservedHeadroomCharacters: budgeted.usage.reservedHeadroomCharacters,
+            maximumInputCharacters: budgeted.usage.maximumInputCharacters,
+            fixedCharacters: budgeted.usage.fixedCharacters,
+            historyOriginalCharacters: budgeted.usage.historyOriginalCharacters,
+            historyRetainedCharacters: budgeted.usage.historyRetainedCharacters,
+            evidenceOriginalCharacters: budgeted.usage.evidenceOriginalCharacters,
+            evidenceRetainedCharacters: budgeted.usage.evidenceRetainedCharacters,
+            totalRetainedTextCharacters: actualCharacters,
+            protectedMultimodalPayloadCharacters: imagePayloadCharacters,
+            historyOriginalMessageCount: budgeted.usage.historyOriginalMessageCount,
+            historyRetainedMessageCount: budgeted.usage.historyRetainedMessageCount,
+            sourceCount: budgeted.usage.sourceCount,
+            truncatedSourceCount: budgeted.usage.truncatedSourceCount
+        )
+        return .init(messages: messages, usage: usage)
+    }
+
+    private static func assemble(
+        system: String,
+        history: [APIMessage],
+        knowledgeContext: String?,
+        profileContext: ProfileContextSnapshot?,
+        toolHistoryContext: ToolHistoryContextSnapshot?,
+        memoryContext: MemoryContextSnapshot?,
+        runtimeClockContext: RuntimeClockContext?,
+        newUserText: String,
+        imageDataURLs: [String]
+    ) -> [APIMessage] {
+        var messages = [APIMessage(role: "system", content: MessagePrefix.systemContent(system: system))]
+        if let profileContext {
+            messages.append(APIMessage(role: "system", content: profileContext.messageContent))
+        }
+        messages.append(contentsOf: history)
+        if let toolHistoryContext {
+            messages.append(APIMessage(role: "system", content: toolHistoryContext.messageContent))
+        }
+        if let knowledgeContext, !knowledgeContext.isEmpty {
+            messages.append(APIMessage(role: "system", content: MessagePrefix.toolEvidenceContent(knowledgeContext)))
         }
         if let memoryContext {
-            messages.insert(
-                APIMessage(role: "system", content: memoryContext.messageContent),
-                at: max(0, messages.count - 1)
-            )
+            messages.append(APIMessage(role: "system", content: memoryContext.messageContent))
         }
         if let runtimeClockContext {
-            messages.insert(
-                APIMessage(role: "system", content: runtimeClockContext.messageContent),
-                at: max(0, messages.count - 1)
-            )
+            messages.append(APIMessage(role: "system", content: runtimeClockContext.messageContent))
         }
+        messages.append(APIMessage(role: "user", content: newUserText, imageDataURLs: imageDataURLs))
         return messages
     }
 }
 
 struct RuntimeClockContext: Sendable, Equatable {
+    static let maximumMessageCharacters = 512
     let localDateTime: String
     let utcDateTime: String
     let timeZoneIdentifier: String
 
     var messageContent: String {
-        """
+        let content = """
         Application runtime clock for this request. Treat this clock as authoritative when interpreting dates and relative terms such as today, tomorrow, yesterday, and now. Do not claim that the current date is unavailable.
-        Local datetime: \(localDateTime)
-        IANA time zone: \(timeZoneIdentifier)
-        UTC datetime: \(utcDateTime)
+        Local datetime: \(String(localDateTime.prefix(80)))
+        IANA time zone: \(String(timeZoneIdentifier.prefix(128)))
+        UTC datetime: \(String(utcDateTime.prefix(80)))
         """
+        return String(content.prefix(Self.maximumMessageCharacters))
     }
 
     static func current(now: Date = Date(), timeZone: TimeZone = .current) -> RuntimeClockContext {
