@@ -72,6 +72,20 @@ jobs:
             build-for-testing \
             | tee "$RUNNER_TEMP/memory-real-evaluation-build.log"
 
+      - name: Run regular XCTest regression
+        if: inputs.native_only == true
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project PersonalDeepSeek.xcodeproj \
+            -scheme PersonalDeepSeek \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/MemoryRealEvaluationDerivedData" \
+            test-without-building \
+            | tee "$RUNNER_TEMP/native-agent-unit-tests.log"
+
       - name: Inject evaluation environment into temporary xctestrun
         run: |
           set -euo pipefail
@@ -192,6 +206,7 @@ jobs:
           cp "$RUNNER_TEMP/memory-live-extractor-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
           cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
           cp "$RUNNER_TEMP/native-agent-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" || true
+          cp "$RUNNER_TEMP/native-agent-unit-tests.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
           if [[ '${{ inputs.native_only }}' != 'true' ]]; then
             test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
             test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"
