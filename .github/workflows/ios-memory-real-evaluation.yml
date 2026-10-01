@@ -20,6 +20,7 @@ jobs:
       RUN_REAL_MEMORY_BACKFILL_EVALUATION: "1"
       RUN_REAL_MEMORY_EVALUATION: "1"
       RUN_REAL_TOOL_HISTORY_EVALUATION: "1"
+      PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS: "1"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
     steps:
@@ -90,6 +91,7 @@ jobs:
                       environment["RUN_REAL_MEMORY_BACKFILL_EVALUATION"] = "1"
                       environment["RUN_REAL_MEMORY_EVALUATION"] = "1"
                       environment["RUN_REAL_TOOL_HISTORY_EVALUATION"] = "1"
+                      environment["PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS"] = "1"
                       environment["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
                       environment["PROFILE_EVALUATION_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
                       environment["MEMORY_BACKFILL_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/profile-behavior-report"
@@ -160,6 +162,18 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/tool-history-evaluation.log"
 
+      - name: Run live research token calibration
+        if: always()
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/ResearchLiveCalibrationTests/testOptInResearchSynthesisAndTokenCalibration \
+            test-without-building \
+            | tee "$RUNNER_TEMP/research-token-calibration.log"
+
       - name: Collect evaluation reports
         if: always()
         run: |
@@ -170,6 +184,7 @@ jobs:
           cp "$RUNNER_TEMP/memory-backfill-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
           cp "$RUNNER_TEMP/memory-live-extractor-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
           cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
+          cp "$RUNNER_TEMP/research-token-calibration.log" "$RUNNER_TEMP/profile-behavior-report/"
           test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"
           test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.json"
