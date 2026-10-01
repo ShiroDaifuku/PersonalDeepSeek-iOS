@@ -302,14 +302,20 @@ enum ChatRequestAssembler {
 
         let systemContent = MessagePrefix.systemContent(system: system)
         let toolEvidenceBase = MessagePrefix.toolEvidenceContent(webEvidencePrefix)
-        let currentRequestCharacters = newUserText.count + imageDataURLs.reduce(0) { $0 + $1.count }
-        let mandatoryCharacters = systemContent.count + currentRequestCharacters +
-            MessagePrefix.toolEvidenceFraming.count + 2 + "Web research evidence:\n".count
-        let fixedCharacters = systemContent.count + currentRequestCharacters + toolEvidenceBase.count +
-            (profileContext?.messageContent.count ?? 0) +
-            (toolHistoryContext?.messageContent.count ?? 0) +
-            (memoryContext?.messageContent.count ?? 0) +
-            (runtimeClockContext?.messageContent.count ?? 0)
+        let imageCharacters = imageDataURLs.reduce(into: 0) { total, value in total += value.count }
+        let currentRequestCharacters = newUserText.count + imageCharacters
+        var mandatoryCharacters = systemContent.count
+        mandatoryCharacters += currentRequestCharacters
+        mandatoryCharacters += MessagePrefix.toolEvidenceFraming.count
+        mandatoryCharacters += 2
+        mandatoryCharacters += "Web research evidence:\n".count
+        var fixedCharacters = systemContent.count
+        fixedCharacters += currentRequestCharacters
+        fixedCharacters += toolEvidenceBase.count
+        fixedCharacters += profileContext?.messageContent.count ?? 0
+        fixedCharacters += toolHistoryContext?.messageContent.count ?? 0
+        fixedCharacters += memoryContext?.messageContent.count ?? 0
+        fixedCharacters += runtimeClockContext?.messageContent.count ?? 0
         let budgeted = try ResearchContextBudgeter.prepare(
             question: researchQuestion,
             sources: researchSources,
@@ -333,8 +339,12 @@ enum ChatRequestAssembler {
             newUserText: newUserText,
             imageDataURLs: imageDataURLs
         )
-        let actualCharacters = messages.reduce(0) { partial, message in
-            partial + message.content.count + message.imageDataURLs.reduce(0) { $0 + $1.count }
+        var actualCharacters = 0
+        for message in messages {
+            actualCharacters += message.content.count
+            for imageDataURL in message.imageDataURLs {
+                actualCharacters += imageDataURL.count
+            }
         }
         guard actualCharacters <= policy.maximumInputCharacters else {
             throw ResearchContextBudgetError.fixedContextExceedsBudget(
