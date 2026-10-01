@@ -196,7 +196,7 @@ final class ResearchContextCalibrationTests: XCTestCase {
     private func assemble(userText: String, imageDataURLs: [String] = []) throws -> ResearchAssembledRequest {
         try ChatRequestAssembler.researchMessages(
             system: "system", history: [], researchQuestion: "q",
-            researchSources: [ResearchSource(title: "Title", url: URL(string: "https://example.com")!, snippet: "s")],
+            researchSources: [ResearchSource(title: "Title", url: URL(string: "https://example.com")!, snippet: "")],
             memoryContext: nil, runtimeClockContext: nil,
             newUserText: userText, imageDataURLs: imageDataURLs,
             now: now, timeZone: timeZone
