@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { nextRun, validateDraft } from "../src/domain";
-import { parseBingRSS } from "../src/index";
+import { compatibleDeepSeekModel, parseBingRSS } from "../src/index";
+
+describe("DeepSeek model compatibility",()=>{
+  it("maps retired model IDs while preserving current production IDs",()=>{
+    expect(compatibleDeepSeekModel("deepseek-chat")).toBe("deepseek-flash");
+    expect(compatibleDeepSeekModel("deepseek-reasoner")).toBe("deepseek-flash");
+    expect(compatibleDeepSeekModel("deepseek-v4-flash")).toBe("deepseek-flash");
+    expect(compatibleDeepSeekModel("deepseek-flash")).toBe("deepseek-flash");
+    expect(compatibleDeepSeekModel("deepseek-v4-pro")).toBe("deepseek-v4-pro");
+  });
+});
 
 const recurring = { title:"Hourly report", kind:"recurring", schedule:{type:"cron",expression:"0 * * * *",timezone:"Asia/Hong_Kong"}, prompt:"Summarize updates", tools:["none"], notify:true, knowledge_base_ids:[] } as const;
 
