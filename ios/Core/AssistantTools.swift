@@ -119,6 +119,11 @@ private struct EditTaskArguments: Codable {
 
 final class AssistantToolPlanner: Sendable {
     func plan(messages: [APIMessage], model: String, tasks: [RemoteTask], knowledgeBases: [KnowledgeBaseToolDescriptor] = [], preferredTool: String? = nil) async throws -> [AssistantToolCall] {
+        let requestModel = DeepSeekModelCompatibility.requestModel(for: model)
+        if messages.contains(where: { !$0.imageDataURLs.isEmpty }),
+           !DeepSeekModelCompatibility.supportsImages(requestModel) {
+            throw ClientError.modelDoesNotSupportImages(requestModel)
+        }
         guard let key = KeychainStore.readAPIKey(), !key.isEmpty else { throw ClientError.missingKey }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let taskInventory = tasks.compactMap { try? encoder.encode($0) }.compactMap { String(data: $0, encoding: .utf8) }.joined(separator: "\n")
@@ -135,7 +140,7 @@ final class AssistantToolPlanner: Sendable {
         """)
         let payloadMessages = ([instruction] + messages).map { ["role": $0.role, "content": $0.wireContent] }
         var body: [String: Any] = [
-            "model": model,
+            "model": requestModel,
             "stream": false,
             "thinking": ["type": "disabled"],
             "reasoning_effort": "none",
