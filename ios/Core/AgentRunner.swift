@@ -140,8 +140,9 @@ struct AgentRunner: Sendable {
                     let envelope = try await executor.execute(call: call, context: .init(runID: request.runID,
                         conversationID: request.conversationID, round: round, budget: budget))
                     try Task.checkCancellation()
-                    result = try NativeToolResultSerializer.success(envelope, budget: budget)
+                    let serialized = try NativeToolResultSerializer.success(envelope, budget: budget)
                     _ = try await persistence.succeed(id: record.id, envelope: envelope)
+                    result = serialized
                     successfulSignatures.insert(call.signature); status = .succeeded
                 } catch {
                     if Task.isCancelled || error is CancellationError {
