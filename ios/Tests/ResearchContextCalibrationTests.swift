@@ -54,11 +54,12 @@ final class ResearchContextCalibrationTests: XCTestCase {
 
     func testImageWithLongHistoryAndEvidenceStillUsesTextBudgetOnly() throws {
         let image = "data:image/jpeg;base64," + Data(repeating: 0xEF, count: 1_200_000).base64EncodedString()
-        let history = (0..<120).flatMap { index in
-            [
-                message(role: "user", content: "old-user-\(index)-" + String(repeating: "中", count: 160), offset: Double(index * 2)),
-                message(role: "assistant", content: "old-answer-\(index)-" + String(repeating: "a", count: 160), offset: Double(index * 2 + 1))
-            ]
+        var history: [ChatMessage] = []
+        for index in 0..<120 {
+            let userText = "old-user-\(index)-" + String(repeating: "中", count: 160)
+            let answerText = "old-answer-\(index)-" + String(repeating: "a", count: 160)
+            history.append(message(role: "user", content: userText, offset: Double(index * 2)))
+            history.append(message(role: "assistant", content: answerText, offset: Double(index * 2 + 1)))
         }
         let result = try ChatRequestAssembler.researchMessages(
             system: "system",
