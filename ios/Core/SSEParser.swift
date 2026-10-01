@@ -1,6 +1,13 @@
 import Foundation
 
-enum StreamDelta: Equatable, Sendable { case reasoning(String), content(String), usage(Int), done }
+struct StreamUsage: Equatable, Sendable {
+    let promptTokens: Int?
+    let completionTokens: Int?
+    let totalTokens: Int?
+    let reasoningTokens: Int?
+}
+
+enum StreamDelta: Equatable, Sendable { case reasoning(String), content(String), usage(StreamUsage), done }
 
 struct SSEParser {
     private var buffer = Data()
@@ -49,6 +56,14 @@ struct SSEParser {
             if let value = delta["reasoning_content"] as? String, !value.isEmpty { output.append(.reasoning(value)) }
             if let value = delta["content"] as? String, !value.isEmpty { output.append(.content(value)) }
         }
-        if let usage = object["usage"] as? [String: Any], let total = usage["total_tokens"] as? Int { output.append(.usage(total)) }
+        if let usage = object["usage"] as? [String: Any] {
+            let details = usage["completion_tokens_details"] as? [String: Any]
+            output.append(.usage(.init(
+                promptTokens: usage["prompt_tokens"] as? Int,
+                completionTokens: usage["completion_tokens"] as? Int,
+                totalTokens: usage["total_tokens"] as? Int,
+                reasoningTokens: details?["reasoning_tokens"] as? Int
+            )))
+        }
     }
 }

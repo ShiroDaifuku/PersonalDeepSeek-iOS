@@ -6,8 +6,13 @@ final class SSEParserTests: XCTestCase {
         var parser = SSEParser(); var result: [StreamDelta] = []
         result += parser.append(Data(": keep-alive\r\n\r\nda".utf8))
         result += parser.append(Data("ta: {\"choices\":[{\"delta\":{\"reasoning_content\":\"想\"}}]}\r\n\r\n".utf8))
-        result += parser.append(Data("data: {\"choices\":[{\"delta\":{\"content\":\"答案\"}}],\"usage\":{\"total_tokens\":9}}\n\ndata: [DONE]\n\n".utf8))
-        XCTAssertEqual(result, [.reasoning("想"), .content("答案"), .usage(9), .done])
+        result += parser.append(Data("data: {\"choices\":[{\"delta\":{\"content\":\"答案\"}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":6,\"total_tokens\":9,\"completion_tokens_details\":{\"reasoning_tokens\":2}}}\n\ndata: [DONE]\n\n".utf8))
+        XCTAssertEqual(result, [
+            .reasoning("想"),
+            .content("答案"),
+            .usage(.init(promptTokens: 3, completionTokens: 6, totalTokens: 9, reasoningTokens: 2)),
+            .done
+        ])
     }
 
     func testUTF8SplitInsideMultibyteScalar() {
