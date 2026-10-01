@@ -37,8 +37,9 @@ enum AssistantIntentRouter {
         if editWords.contains(where: value.contains) { return "edit_scheduled_task" }
         let scheduleWords = ["提醒我", "定时", "每天", "每周", "每月", "明天", "后天", "小时后", "分钟后", "schedule", "remind me", "every day", "every week"]
         if scheduleWords.contains(where: value.contains) { return "create_scheduled_task" }
-        let researchWords = ["深度研究", "深入研究", "deep search", "deep research", "联网搜索", "联网查询", "上网查询", "上网帮我查", "帮我查网页", "上网查一下", "搜一下网页", "搜索网页", "查最新", "最新", "今天", "今日", "新闻", "实时", "当前价格", "现在价格", "天气", "汇率", "股价", "latest", "recent", "news", "weather", "price today"]
-        if researchWords.contains(where: value.contains) { return "start_deep_search" }
+        if isDeepResearchRequest(text) { return "start_deep_search" }
+        let researchWords = ["联网搜索", "联网查询", "上网查询", "上网帮我查", "帮我查网页", "上网查一下", "搜一下网页", "搜索网页", "查一下今天", "查最新", "最新", "今天", "今日", "新闻", "实时", "当前价格", "现在价格", "天气", "汇率", "股价", "latest", "recent", "news", "weather", "price today"]
+        if researchWords.contains(where: value.contains) { return "web_search" }
         let manageWords = ["创建知识库", "新建知识库", "删除知识库", "重命名知识库", "启用知识库", "停用知识库", "导入到知识库", "添加到知识库", "有哪些知识库", "管理知识库"]
         if manageWords.contains(where: value.contains) { return "manage_local_knowledge" }
         let knowledgeWords = ["我的笔记", "我的文档", "知识库", "资料库", "本地资料", "private notes", "knowledge base"]

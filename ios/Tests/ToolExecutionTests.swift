@@ -204,7 +204,7 @@ final class ToolExecutionTests: XCTestCase {
 
     func testRouterRecognizesExplicitSearchPhrasesAndCleansQuery() {
         for phrase in ["联网查询量子计算新闻", "上网查询汇率", "帮我查网页 Swift 6", "上网查一下天气", "搜一下网页 OurNotes"] {
-            XCTAssertEqual(AssistantIntentRouter.preferredTool(for: phrase), "start_deep_search", phrase)
+            XCTAssertEqual(AssistantIntentRouter.preferredTool(for: phrase), "web_search", phrase)
         }
         XCTAssertEqual(AssistantIntentRouter.researchQuery(from: "请联网查询：Swift 6 最新变化"), "Swift 6 最新变化")
     }

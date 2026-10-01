@@ -3,6 +3,13 @@ import SwiftData
 
 @ModelActor
 actor ToolExecutionStore {
+    private var preparedForRuns = false
+
+    func prepareForRun() throws {
+        guard !preparedForRuns else { return }
+        try repairInterrupted()
+        preparedForRuns = true
+    }
     func begin(_ draft: ToolExecutionDraft) throws -> ToolExecutionRecordSnapshot {
         let name = draft.toolName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw ToolExecutionError.invalidRecord }
@@ -91,6 +98,17 @@ actor ToolExecutionStore {
         return records.count
     }
 
+    /// Called once before a run in a new service lifetime. No live run is repaired.
+    func repairInterrupted() throws {
+        let running = ToolExecutionStatus.running.rawValue
+        let rows = try fetch(FetchDescriptor<ToolExecutionRecord>(predicate: #Predicate { $0.statusRawValue == running }))
+        for row in rows {
+            row.statusRawValue = ToolExecutionStatus.cancelled.rawValue
+            row.errorCode = "interrupted"; row.completedAt = Date()
+        }
+        if !rows.isEmpty { try save() }
+    }
+
     private func record(id: UUID) throws -> ToolExecutionRecord? {
         let requestedID = id
         var descriptor = FetchDescriptor<ToolExecutionRecord>(predicate: #Predicate { $0.id == requestedID })
@@ -142,7 +160,10 @@ final class ToolExecutionService: Sendable {
         userMessageID: UUID?,
         assistantMessageID: UUID?,
         toolName: String,
-        query: String?
+        query: String?,
+        toolCallID: String? = nil,
+        roundIndex: Int? = nil,
+        parentExecutionID: UUID? = nil
     ) async throws -> ToolExecutionRecordSnapshot {
         let boundedQuery = query.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000)) }
         let arguments: Data?
@@ -154,7 +175,10 @@ final class ToolExecutionService: Sendable {
             assistantMessageID: assistantMessageID,
             toolName: toolName,
             query: boundedQuery,
-            argumentsData: arguments
+            argumentsData: arguments,
+            toolCallID: toolCallID,
+            roundIndex: roundIndex,
+            parentExecutionID: parentExecutionID
         ))
     }
 

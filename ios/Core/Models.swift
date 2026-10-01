@@ -66,11 +66,25 @@ struct APIMessage: Equatable, Sendable {
     let role: String
     let content: String
     let imageDataURLs: [String]
+    let reasoningContent: String?
+    let toolCalls: [NativeToolCall]?
+    let toolCallID: String?
 
-    init(role: String, content: String, imageDataURLs: [String] = []) {
+    init(role: String, content: String, imageDataURLs: [String] = [], reasoningContent: String? = nil, toolCalls: [NativeToolCall]? = nil, toolCallID: String? = nil) {
         self.role = role
         self.content = content
         self.imageDataURLs = imageDataURLs
+        self.reasoningContent = reasoningContent
+        self.toolCalls = toolCalls
+        self.toolCallID = toolCallID
+    }
+
+    var wireMessage: [String: Any] {
+        var value: [String: Any] = ["role": role, "content": wireContent]
+        if let reasoningContent { value["reasoning_content"] = reasoningContent }
+        if let toolCalls { value["tool_calls"] = toolCalls.map(\.wireValue) }
+        if let toolCallID { value["tool_call_id"] = toolCallID }
+        return value
     }
 
     /// DeepSeek/OpenAI compatible message content. Plain messages keep the

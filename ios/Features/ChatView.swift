@@ -4,11 +4,11 @@ import PhotosUI
 import UniformTypeIdentifiers
 
 private enum ComposerToolMode: String, Identifiable {
-    case scheduledTask, deepResearch, knowledge
+    case scheduledTask, webSearch, deepResearch, knowledge
     var id: String { rawValue }
-    var title: String { switch self { case .scheduledTask: "创建定时任务"; case .deepResearch: "深度搜索"; case .knowledge: "连接知识库" } }
-    var icon: String { switch self { case .scheduledTask: "clock.badge.plus"; case .deepResearch: "sparkle.magnifyingglass"; case .knowledge: "books.vertical" } }
-    var preferredTool: String { switch self { case .scheduledTask: "create_scheduled_task"; case .deepResearch: "start_deep_search"; case .knowledge: "search_local_knowledge" } }
+    var title: String { switch self { case .scheduledTask: "创建定时任务"; case .webSearch: "联网搜索"; case .deepResearch: "深度搜索"; case .knowledge: "连接知识库" } }
+    var icon: String { switch self { case .scheduledTask: "clock.badge.plus"; case .webSearch: "globe"; case .deepResearch: "sparkle.magnifyingglass"; case .knowledge: "books.vertical" } }
+    var preferredTool: String { switch self { case .scheduledTask: "create_scheduled_task"; case .webSearch: "web_search"; case .deepResearch: "start_deep_search"; case .knowledge: "search_local_knowledge" } }
 }
 
 struct ChatView: View {
@@ -163,6 +163,7 @@ struct ChatView: View {
             Menu {
                 Section("本次对话工具") {
                     Button { selectManualTool(.scheduledTask) } label: { Label("创建定时任务", systemImage: "clock.badge.plus") }
+                    Button { selectManualTool(.webSearch) } label: { Label("联网搜索", systemImage: "globe") }
                     Button { selectManualTool(.deepResearch) } label: { Label("开始深度搜索", systemImage: "sparkle.magnifyingglass") }
                     Button { selectManualTool(.knowledge) } label: { Label("连接知识库", systemImage: "books.vertical") }
                 }
@@ -218,6 +219,7 @@ struct ChatView: View {
     }
 
     private func send() {
+        guard !isStreaming else { return }
         composerFocused = false
         let typedText = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typedText.isEmpty || !attachments.isEmpty else { return }
@@ -229,7 +231,10 @@ struct ChatView: View {
         let preferredTool = selectedManualTool?.preferredTool ?? AssistantIntentRouter.preferredTool(for: requestText)
         if current == nil { createConversation() }; guard let conversation = current else { return }
         if selectedManualTool == .deepResearch { conversation.mode = "research" }
-        let history = conversation.messages.sorted { $0.createdAt < $1.createdAt }
+        let history = conversation.messages.sorted {
+            $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt
+        }
+        let agentHistory = history.map { AgentHistorySnapshot(role: $0.role, content: $0.content, reasoning: $0.reasoning) }
         let retrievalContextText = MemoryRetrievalQueryContextBuilder.build(
             from: history.map { .init(role: $0.role, content: $0.content) }
         )
@@ -250,6 +255,8 @@ struct ChatView: View {
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
         let planningMessages = MessagePrefix.stable(system: conversation.systemPrompt, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
         let runtimeClockContext = RuntimeClockContext.current()
+        let frozenModel = conversation.model, frozenThinking = thinking, frozenEffort = effort
+        let localAdapter = AgentLocalKnowledgeAdapter(bases: knowledgeBases)
         streamTask = Task {
             var fullReasoning = ""
             var fullContent = ""
@@ -258,6 +265,7 @@ struct ChatView: View {
             var currentTurnToolExecutionIDs: [UUID] = []
             do {
                 try Task.checkCancellation()
+                try await toolExecutionService.store.prepareForRun()
                 // The Profile read is an O(1) actor-cache lookup and runs alongside the single
                 // fail-open Atomic Memory retrieval. Neither personal context reaches the tool
                 // planner; every main-answer stage reuses these immutable snapshots.
@@ -287,7 +295,9 @@ struct ChatView: View {
                 try Task.checkCancellation()
                 let tasks = preferredTool == "edit_scheduled_task" ? ((try? await taskAPI?.list()) ?? []) : []
                 let calls: [AssistantToolCall]
-                if let preferredTool, let directCall = AssistantIntentRouter.directCall(for: preferredTool, query: requestText) {
+                if preferredTool == "web_search" || preferredTool == "search_local_knowledge" {
+                    calls = [] // Main model owns read-only tool selection and re-entry.
+                } else if let preferredTool, let directCall = AssistantIntentRouter.directCall(for: preferredTool, query: requestText) {
                     calls = [directCall]
                 } else if let preferredTool {
                     let knowledgeDescriptors = LocalKnowledgeCloudSync.descriptors(from: knowledgeBases)
@@ -447,14 +457,28 @@ struct ChatView: View {
 #endif
                     var pendingReasoning = "", pendingContent = ""
                     var lastRender = Date.distantPast
-                    for try await delta in APIClient().stream(messages: requestMessages, model: conversation.model, thinking: thinking, reasoningEffort: effort) {
+                    let nativeTools: [String] = preferredTool == "web_search" ? ["web_search"] :
+                        (preferredTool == "search_local_knowledge" ? ["local_knowledge_search"] : [])
+                    let agentRequest = AgentRequest(conversationID: conversation.id, userMessageID: user.id,
+                        assistantMessageID: assistant.id, model: frozenModel, thinking: frozenThinking,
+                        reasoningEffort: frozenEffort,
+                        messages: nativeTools.isEmpty ? requestMessages : AgentInitialMessages.preservingReasoning(requestMessages, history: agentHistory),
+                        enabledTools: nativeTools,
+                        manualToolName: selectedManualTool == .webSearch ? "web_search" :
+                            (selectedManualTool == .knowledge ? "local_knowledge_search" : nil))
+                    let runner = AgentRunner(model: APIClient(), executor: ReadOnlyToolExecutor(localSearch: { query, limit in
+                        await localAdapter.search(query, limit: limit)
+                    }), persistence: toolExecutionService)
+                    for try await event in runner.events(for: agentRequest) {
                         try Task.checkCancellation()
                         var forceRender = false
-                        switch delta {
-                        case .reasoning(let value): pendingReasoning += value
-                        case .content(let value): pendingContent += value
-                        case .done: forceRender = true
-                        case .usage: break
+                        switch event {
+                        case .reasoningDelta(let value): pendingReasoning += value
+                        case .contentDelta(let value): pendingContent += value
+                        case .finalAnswer: forceRender = true
+                        case .toolExecutionStarted(_, let name): toolStatus = name == "web_search" ? "正在搜索网页…" : "正在查询本地资料…"
+                        case .toolExecutionCompleted: toolStatus = "工具执行完成，正在整理回答…"
+                        case .toolCallStarted, .roundCompleted, .usage, .failure: break
                         }
                         if forceRender || Date().timeIntervalSince(lastRender) >= 0.1 {
                             if !pendingReasoning.isEmpty {
@@ -524,9 +548,7 @@ struct ChatView: View {
     @MainActor private func cancelGeneration() {
         guard isStreaming else { return }
         streamTask?.cancel()
-        streamTask = nil
-        isStreaming = false
-        toolStatus = nil
+        toolStatus = "正在停止生成…"
         try? context.save()
     }
 
