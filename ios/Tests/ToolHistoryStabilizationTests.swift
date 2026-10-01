@@ -70,7 +70,7 @@ import XCTest
         let finalRoundIndex = try XCTUnwrap(events.firstIndex { if case .roundCompleted(let m) = $0 { return m.round == 2 }; return false })
         XCTAssertLessThan(contentIndex, finalRoundIndex)
         let requests = await model.captured()
-        XCTAssertEqual(requests.last?.toolChoice, .none)
+        XCTAssertEqual(requests.last?.toolChoice, NativeToolChoice.none)
     }
 }
 
