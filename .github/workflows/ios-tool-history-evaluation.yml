@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 45
     env:
       RUN_REAL_TOOL_HISTORY_EVALUATION: "1"
+      PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS: "1"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
     steps:
@@ -58,6 +59,7 @@ jobs:
                   if "TestBundlePath" in value:
                       env = value.setdefault("EnvironmentVariables", {})
                       env["RUN_REAL_TOOL_HISTORY_EVALUATION"] = "1"
+                      env["PERSONALDEEPSEEK_RUN_LIVE_RESEARCH_EVALS"] = "1"
                       env["DEEPSEEK_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
                       env["TOOL_HISTORY_REPORT_DIR"] = os.environ["RUNNER_TEMP"] + "/tool-history-report"
                       count += 1
@@ -78,12 +80,21 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -only-testing:PersonalDeepSeekTests/ToolHistoryRealEvaluationTests/testPersistedToolHistoryBehaviorAgainstRealDeepSeek \
             test-without-building | tee "$RUNNER_TEMP/tool-history-evaluation.log"
+      - name: Run live research token calibration
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -xctestrun "$XCTESTRUN_PATH" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/ResearchLiveCalibrationTests/testOptInResearchSynthesisAndTokenCalibration \
+            test-without-building | tee "$RUNNER_TEMP/research-token-calibration.log"
       - name: Collect report
         if: always()
         run: |
           mkdir -p "$RUNNER_TEMP/tool-history-report"
           cp "$RUNNER_TEMP/tool-history-build.log" "$RUNNER_TEMP/tool-history-report/" 2>/dev/null || true
           cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/tool-history-report/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/research-token-calibration.log" "$RUNNER_TEMP/tool-history-report/" 2>/dev/null || true
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
