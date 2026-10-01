@@ -22,12 +22,13 @@ struct ToolCallFragment: Equatable, Sendable {
 }
 
 enum AgentError: LocalizedError, Sendable, Equatable {
-    case protocolViolation, invalidArguments, unavailableTool, budgetExceeded, timedOut, emptyAnswer
+    case protocolViolation, invalidArguments, unavailableTool, manualToolNotCalled, budgetExceeded, timedOut, emptyAnswer
     var errorDescription: String? {
         switch self {
         case .protocolViolation: "工具调用协议无效，请重试。"
         case .invalidArguments: "模型返回了无效的工具参数，请重试。"
         case .unavailableTool: "模型请求的工具未开放。"
+        case .manualToolNotCalled: "模型未执行你指定的工具，本次回答已停止，请重试。"
         case .budgetExceeded: "已达到本次工具调用上限，请缩小问题范围后重试。"
         case .timedOut: "本次工具处理超时，请重试。"
         case .emptyAnswer: "模型没有返回有效回答，请重试。"

@@ -75,6 +75,44 @@ enum AgentTestFixtures {
 }
 
 @MainActor final class AgentRunnerTests: XCTestCase {
+    func testManualThinkingUsesAutoAndPreservesReasoningReentry() async throws {
+        let model = ScriptedAgentModel(rounds: [AgentTestFixtures.toolRound(), AgentTestFixtures.finalRound])
+        let request = AgentRequest(conversationID: UUID(), userMessageID: UUID(), assistantMessageID: UUID(),
+            model: "deepseek-flash", thinking: true, reasoningEffort: "low",
+            messages: [.init(role: "system", content: "base"), .init(role: "user", content: "search")],
+            enabledTools: ["web_search"], manualToolName: "web_search")
+        _ = try await AgentTestFixtures.collect(AgentRunner(model: model, executor: FixtureAgentExecutor(),
+            persistence: ToolExecutionService(modelContainer: try AgentTestFixtures.container())).events(for: request))
+        let captured = await model.captured()
+        XCTAssertEqual(captured.first?.toolChoice, .auto)
+        XCTAssertTrue(captured.first?.messages.first?.content.contains("explicitly selected web_search") == true)
+        XCTAssertEqual(captured[1].messages[2].reasoningContent, "reasoning must survive re-entry")
+    }
+
+    func testManualThinkingCannotSilentlySkipSelectedTool() async throws {
+        let request = AgentRequest(conversationID: UUID(), userMessageID: UUID(), assistantMessageID: UUID(),
+            model: "deepseek-flash", thinking: true, reasoningEffort: "low",
+            messages: [.init(role: "system", content: "base"), .init(role: "user", content: "search")],
+            enabledTools: ["web_search"], manualToolName: "web_search")
+        do {
+            _ = try await AgentTestFixtures.collect(AgentRunner(model: ScriptedAgentModel(rounds: [AgentTestFixtures.finalRound]),
+                executor: FixtureAgentExecutor(), persistence: ToolExecutionService(modelContainer: try AgentTestFixtures.container())).events(for: request))
+            XCTFail("Manual selection must not silently become an unverified answer")
+        } catch { XCTAssertEqual(error as? AgentError, .manualToolNotCalled) }
+    }
+
+    func testManualNonThinkingStillForcesTool() async throws {
+        let model = ScriptedAgentModel(rounds: [AgentTestFixtures.toolRound(), AgentTestFixtures.finalRound])
+        let request = AgentRequest(conversationID: UUID(), userMessageID: UUID(), assistantMessageID: UUID(),
+            model: "deepseek-flash", thinking: false, reasoningEffort: "low",
+            messages: [.init(role: "system", content: "base"), .init(role: "user", content: "search")],
+            enabledTools: ["web_search"], manualToolName: "web_search")
+        _ = try await AgentTestFixtures.collect(AgentRunner(model: model, executor: FixtureAgentExecutor(),
+            persistence: ToolExecutionService(modelContainer: try AgentTestFixtures.container())).events(for: request))
+        let captured = await model.captured()
+        XCTAssertEqual(captured.first?.toolChoice, .forced("web_search"))
+    }
+
     func testNoToolRequestRemainsEquivalent() async throws {
         let model = ScriptedAgentModel(rounds: [AgentTestFixtures.finalRound])
         let executor = FixtureAgentExecutor(), request = AgentTestFixtures.request(tools: [])

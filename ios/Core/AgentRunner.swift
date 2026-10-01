@@ -42,6 +42,12 @@ struct AgentRunner: Sendable {
             guard transcript.first?.role == "system" else { throw AgentError.protocolViolation }
             let base = transcript[0]
             transcript[0] = APIMessage(role: "system", content: base.content + "\n\n" + ToolRegistry.securityInstruction)
+            if request.thinking, let manual = request.manualToolName {
+                // Official thinking mode rejects named/required tool_choice (HTTP 400).
+                // Use auto plus a checked local requirement, never silently bypass the tool.
+                transcript[0] = APIMessage(role: "system", content: transcript[0].content +
+                    "\nThe user explicitly selected " + manual + ". Your first response must call that tool before answering. Use only the registered schema.")
+            }
             // DeepSeek requires past assistant reasoning in requests carrying tools.
             transcript = transcript.map { message in
                 guard message.role == "assistant", message.reasoningContent == nil else { return message }
@@ -58,7 +64,7 @@ struct AgentRunner: Sendable {
             // Reserve the last completion for final streamed synthesis. Earlier rounds can refine.
             let finalOnly = round == budget.maxRounds && round > 1
             let choice: NativeToolChoice = finalOnly ? .none :
-                (round == 1 ? request.manualToolName.map(NativeToolChoice.forced) ?? .auto : .auto)
+                (round == 1 && !request.thinking ? request.manualToolName.map(NativeToolChoice.forced) ?? .auto : .auto)
             let input = AgentModelRequest(messages: transcript, model: request.model, thinking: request.thinking,
                 reasoningEffort: request.reasoningEffort, toolNames: request.enabledTools, toolChoice: choice)
             let start = clock.now
@@ -92,6 +98,10 @@ struct AgentRunner: Sendable {
             }
             guard ended else { throw ClientError.streamEnded }
             let calls = try accumulator.finalized()
+            if round == 1, let manual = request.manualToolName,
+               !calls.contains(where: { $0.function.name == manual }) {
+                throw AgentError.manualToolNotCalled
+            }
             let finishReason = reason ?? (request.enabledTools.isEmpty ? "stop" : "missing")
             let roundMetrics = AgentRoundMetrics(round: round,
                 ttftMilliseconds: firstToken.map { milliseconds(start.duration(to: $0)) },
