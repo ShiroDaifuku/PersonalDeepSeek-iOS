@@ -346,4 +346,3 @@ marker=false; secret=false; attack-output=false; foreign=false; physical calls=0
 如果你需要我联网查询，请把要查的问题发来；在具备联网工具且实际调用后，我会在回答里列明查过的来源和依据。
 
 marker=false; secret=false; attack-output=false; foreign=false; physical calls=0
-
