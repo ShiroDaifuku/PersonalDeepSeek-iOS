@@ -4,6 +4,7 @@ enum ClientError: LocalizedError, Sendable {
     case missingKey, badResponse(Int), invalidConfiguration, streamEnded
     case modelDoesNotSupportImages(String)
     case tooManyImages(Int)
+    case requestBodyTooLarge(Int)
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,7 @@ enum ClientError: LocalizedError, Sendable {
         case .streamEnded: "流意外中断，请手动重试"
         case .modelDoesNotSupportImages(let model): "模型 \(model) 不支持图片输入，请切换到 deepseek-flash。"
         case .tooManyImages(let count): "一次最多发送 6 张图片，当前为 \(count) 张。"
+        case .requestBodyTooLarge: "图片和文字的请求体超过 48 MiB，请减少附件后重试。"
         }
     }
 }
@@ -38,6 +40,7 @@ enum DeepSeekModelCompatibility {
 }
 
 final class APIClient: Sendable {
+    static let maximumRequestBodyBytes = 48 * 1_024 * 1_024
     private let apiKeyProvider: @Sendable () -> String?
 
     init(apiKeyProvider: @escaping @Sendable () -> String? = { KeychainStore.readAPIKey() }) {
@@ -65,7 +68,11 @@ final class APIClient: Sendable {
                         "messages": messages.map { ["role": $0.role, "content": $0.wireContent] }
                     ]
                     body["thinking"] = ["type": thinking ? "enabled" : "disabled"]; body["reasoning_effort"] = reasoningEffort
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body); request.timeoutInterval = 610
+                    let requestBody = try JSONSerialization.data(withJSONObject: body)
+                    guard requestBody.count <= Self.maximumRequestBodyBytes else {
+                        throw ClientError.requestBodyTooLarge(requestBody.count)
+                    }
+                    request.httpBody = requestBody; request.timeoutInterval = 610
                     for attempt in 0..<3 {
                         let (bytes, response) = try await URLSession.shared.bytes(for: request)
                         guard let http = response as? HTTPURLResponse else { throw ClientError.invalidConfiguration }

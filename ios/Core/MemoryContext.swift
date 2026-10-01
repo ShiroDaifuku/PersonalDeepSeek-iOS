@@ -247,6 +247,8 @@ struct ResearchAssembledRequest: Sendable, Equatable {
 }
 
 enum ChatRequestAssembler {
+    static let maximumResearchAuxiliaryKnowledgeCharacters = 4_000
+
     static func messages(
         system: String,
         history: [ChatMessage],
@@ -295,7 +297,13 @@ enum ChatRequestAssembler {
         }.map { ResearchHistoryMessage(role: $0.role, content: $0.content) }
         let webEvidencePrefix: String
         if let knowledgeContext, !knowledgeContext.isEmpty {
-            webEvidencePrefix = knowledgeContext + "\n\nWeb research evidence:\n"
+            let marker = "\n[local knowledge truncated]"
+            let bounded = knowledgeContext.count <= maximumResearchAuxiliaryKnowledgeCharacters
+                ? knowledgeContext
+                : String(knowledgeContext.prefix(maximumResearchAuxiliaryKnowledgeCharacters - marker.count)) + marker
+            let uncited = ToolHistoryContextBuilder.nonCiteableSourceLabels(in: bounded)
+            webEvidencePrefix = "Local knowledge background (not a numbered web citation):\n" +
+                uncited + "\n\nWeb research evidence:\n"
         } else {
             webEvidencePrefix = "Web research evidence:\n"
         }

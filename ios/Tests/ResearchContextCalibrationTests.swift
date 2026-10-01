@@ -110,6 +110,23 @@ final class ResearchContextCalibrationTests: XCTestCase {
         XCTAssertTrue(current.content.contains("[2] Title 2"))
     }
 
+    func testAuxiliaryKnowledgeIsBoundedAndCannotCollideWithWebCitations() throws {
+        let knowledge = "[1] Private note\n" + String(repeating: "k", count: 50_000)
+        let result = try ChatRequestAssembler.researchMessages(
+            system: "system", history: [], researchQuestion: "q",
+            researchSources: sources(count: 2, bodyCharacters: 20),
+            knowledgeContext: knowledge, memoryContext: nil,
+            newUserText: "question", now: now, timeZone: timeZone
+        )
+        let evidence = try XCTUnwrap(result.messages.first { $0.content.contains("Web research evidence:") })
+        XCTAssertTrue(evidence.content.contains("［1］ Private note"))
+        XCTAssertFalse(evidence.content.contains("[1] Private note"))
+        XCTAssertTrue(evidence.content.contains("[1] Title 1"))
+        XCTAssertTrue(evidence.content.contains("[local knowledge truncated]"))
+        XCTAssertLessThanOrEqual(result.usage.fixedCharacters, 5_000)
+        XCTAssertLessThanOrEqual(result.usage.totalRetainedTextCharacters, result.usage.maximumInputCharacters)
+    }
+
     func testPathologicalMetadataCannotBypassEvidenceBudget() throws {
         let longURL = URL(string: "https://example.com/" + String(repeating: "segment/", count: 2_000))!
         let source = ResearchSource(
