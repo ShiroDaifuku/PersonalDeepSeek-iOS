@@ -44,9 +44,11 @@ final class IntegrationRoutingTests: XCTestCase {
         let image = "data:image/jpeg;base64,YQ=="
         XCTAssertThrowsError(try APIClient.requestBody(.init(messages: [
             .init(role: "user", content: "Look", imageDataURLs: Array(repeating: image, count: 7))
-        ], model: "deepseek-flash", thinking: false, reasoningEffort: "none")))
+        ], model: "deepseek-flash", thinking: false, reasoningEffort: "none",
+            toolNames: [], toolChoice: .auto)))
         XCTAssertThrowsError(try APIClient.requestBody(.init(messages: [
             .init(role: "user", content: "Look", imageDataURLs: [image])
-        ], model: "deepseek-v4-pro", thinking: false, reasoningEffort: "none")))
+        ], model: "deepseek-v4-pro", thinking: false, reasoningEffort: "none",
+            toolNames: [], toolChoice: .auto)))
     }
 }
