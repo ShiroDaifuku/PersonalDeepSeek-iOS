@@ -2,6 +2,11 @@ name: Evaluate iOS Memory Profile
 
 on:
   workflow_dispatch:
+    inputs:
+      native_only:
+        description: Run native agent and persisted tool history only
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -114,6 +119,7 @@ jobs:
           echo "XCTESTRUN_PATH=$xctestrun" >> "$GITHUB_ENV"
 
       - name: Run real DeepSeek Global Profile A/B evaluation
+        if: inputs.native_only != true
         working-directory: ios
         run: |
           set -o pipefail
@@ -127,7 +133,7 @@ jobs:
             | tee "$RUNNER_TEMP/profile-behavior-evaluation.log"
 
       - name: Run real DeepSeek historical backfill timeline evaluation
-        if: always()
+        if: always() && inputs.native_only != true && env.XCTESTRUN_PATH != ''
         working-directory: ios
         run: |
           set -o pipefail
@@ -139,7 +145,7 @@ jobs:
             | tee "$RUNNER_TEMP/memory-backfill-evaluation.log"
 
       - name: Run real DeepSeek live extractor regression
-        if: always()
+        if: always() && inputs.native_only != true && env.XCTESTRUN_PATH != ''
         working-directory: ios
         run: |
           set -o pipefail
@@ -151,7 +157,7 @@ jobs:
             | tee "$RUNNER_TEMP/memory-live-extractor-evaluation.log"
 
       - name: Run real DeepSeek persisted tool history evaluation
-        if: always()
+        if: always() && env.XCTESTRUN_PATH != ''
         working-directory: ios
         run: |
           set -o pipefail
@@ -164,7 +170,7 @@ jobs:
             | tee "$RUNNER_TEMP/tool-history-evaluation.log"
 
       - name: Run real DeepSeek bounded native agent evaluation
-        if: always()
+        if: always() && env.XCTESTRUN_PATH != ''
         working-directory: ios
         run: |
           set -o pipefail
@@ -181,19 +187,23 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/profile-behavior-report"
           cp "$RUNNER_TEMP/memory-real-evaluation-build.log" "$RUNNER_TEMP/profile-behavior-report/"
-          cp "$RUNNER_TEMP/profile-behavior-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
-          cp "$RUNNER_TEMP/memory-backfill-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
-          cp "$RUNNER_TEMP/memory-live-extractor-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
-          cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/"
+          cp "$RUNNER_TEMP/profile-behavior-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-backfill-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-live-extractor-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/tool-history-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" 2>/dev/null || true
           cp "$RUNNER_TEMP/native-agent-evaluation.log" "$RUNNER_TEMP/profile-behavior-report/" || true
-          test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
-          test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"
-          test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.json"
-          test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.md"
-          test -f "$RUNNER_TEMP/profile-behavior-report/memory-evaluation-report.json"
-          test -f "$RUNNER_TEMP/profile-behavior-report/memory-evaluation-report.md"
+          if [[ '${{ inputs.native_only }}' != 'true' ]]; then
+            test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.json"
+            test -f "$RUNNER_TEMP/profile-behavior-report/profile-behavior-evaluation.md"
+            test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.json"
+            test -f "$RUNNER_TEMP/profile-behavior-report/memory-backfill-evaluation.md"
+            test -f "$RUNNER_TEMP/profile-behavior-report/memory-evaluation-report.json"
+            test -f "$RUNNER_TEMP/profile-behavior-report/memory-evaluation-report.md"
+          fi
           test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-evaluation.json"
           test -f "$RUNNER_TEMP/profile-behavior-report/tool-history-evaluation.md"
+          test -f "$RUNNER_TEMP/profile-behavior-report/native-agent-evaluation.json"
+          test -f "$RUNNER_TEMP/profile-behavior-report/native-agent-evaluation.md"
 
       - name: Upload evaluation report
         if: always()

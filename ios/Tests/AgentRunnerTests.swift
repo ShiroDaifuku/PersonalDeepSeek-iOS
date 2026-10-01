@@ -103,6 +103,8 @@ enum AgentTestFixtures {
         XCTAssertEqual(records.count, 2)
         XCTAssertEqual(Set(records.compactMap(\.toolCallID)), Set(["call_1", "call_2"]))
         XCTAssertTrue(records.allSatisfy { $0.status == .succeeded && $0.roundIndex != nil })
+        let arguments = try JSONDecoder.toolPersistence.decode(ToolArgumentsEnvelope.self, from: XCTUnwrap(records.first?.argumentsData))
+        XCTAssertEqual(arguments.limit, 1)
         XCTAssertTrue(events.contains { if case .finalAnswer(let content, _, _) = $0 { return content == "4827" }; return false })
         let replay = await service.contextForChat(conversationID: request.conversationID)
         XCTAssertEqual(replay?.executions.count, 2)

@@ -114,10 +114,12 @@ struct ToolArgumentsEnvelope: Codable, Sendable, Equatable {
     static let currentSchemaVersion = 1
     let schemaVersion: Int
     let query: String?
+    let limit: Int?
 
-    init(query: String?) {
+    init(query: String?, limit: Int? = nil) {
         schemaVersion = Self.currentSchemaVersion
         self.query = query
+        self.limit = limit
     }
 }
 

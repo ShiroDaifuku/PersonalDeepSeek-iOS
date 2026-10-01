@@ -98,7 +98,7 @@ private struct NativeEvaluationRecord: Codable {
                 }
             } catch {
                 return .init(caseID: id, passed: id.hasPrefix("G-") && error as? AgentError == .budgetExceeded,
-                    response: answer, error: String(describing: type(of: error)), physicalExecutions: await fixture?.count() ?? 0, metrics: metrics)
+                    response: answer, error: error.localizedDescription, physicalExecutions: await fixture?.count() ?? 0, metrics: metrics)
             }
             let physical = metrics?.tools.filter(\.physicallyExecuted).count ?? 0
             let passed: Bool
@@ -114,7 +114,7 @@ private struct NativeEvaluationRecord: Codable {
             }
             return .init(caseID: id, passed: passed, response: answer, error: nil, physicalExecutions: physical, metrics: metrics)
         } catch {
-            return .init(caseID: id, passed: false, response: "", error: String(describing: type(of: error)), physicalExecutions: 0, metrics: nil)
+            return .init(caseID: id, passed: false, response: "", error: error.localizedDescription, physicalExecutions: 0, metrics: nil)
         }
     }
 }

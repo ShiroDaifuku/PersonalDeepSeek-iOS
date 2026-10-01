@@ -137,7 +137,7 @@ struct AgentRunner: Sendable {
                 }
                 let record = try await persistence.begin(conversationID: request.conversationID,
                     userMessageID: request.userMessageID, assistantMessageID: request.assistantMessageID,
-                    toolName: call.call.function.name, query: call.query,
+                    toolName: call.call.function.name, query: call.query, limit: call.limit,
                     toolCallID: call.call.id, roundIndex: round)
                 continuation.yield(.toolExecutionStarted(record.id, toolName: call.call.function.name))
                 physicalCalls += 1

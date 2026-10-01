@@ -161,13 +161,14 @@ final class ToolExecutionService: Sendable {
         assistantMessageID: UUID?,
         toolName: String,
         query: String?,
+        limit: Int? = nil,
         toolCallID: String? = nil,
         roundIndex: Int? = nil,
         parentExecutionID: UUID? = nil
     ) async throws -> ToolExecutionRecordSnapshot {
         let boundedQuery = query.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000)) }
         let arguments: Data?
-        do { arguments = try JSONEncoder.toolPersistence.encode(ToolArgumentsEnvelope(query: boundedQuery)) }
+        do { arguments = try JSONEncoder.toolPersistence.encode(ToolArgumentsEnvelope(query: boundedQuery, limit: limit)) }
         catch { throw ToolExecutionError.encodingFailure }
         return try await store.begin(.init(
             conversationID: conversationID,
