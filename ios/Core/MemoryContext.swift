@@ -241,39 +241,154 @@ enum PersonalContextDominanceFilter {
     }
 }
 
+struct ResearchAssembledRequest: Sendable, Equatable {
+    let messages: [APIMessage]
+    let usage: ResearchContextUsage
+}
+
 enum ChatRequestAssembler {
     static func messages(
         system: String,
         history: [ChatMessage],
         knowledgeContext: String? = nil,
         profileContext: ProfileContextSnapshot? = nil,
+        toolHistoryContext: ToolHistoryContextSnapshot? = nil,
         memoryContext: MemoryContextSnapshot?,
         runtimeClockContext: RuntimeClockContext? = nil,
         newUserText: String,
         imageDataURLs: [String] = []
     ) -> [APIMessage] {
-        var messages = MessagePrefix.stable(
+        let orderedHistory = history.sorted { lhs, rhs in
+            lhs.createdAt == rhs.createdAt ? lhs.id.uuidString < rhs.id.uuidString : lhs.createdAt < rhs.createdAt
+        }.map { APIMessage(role: $0.role, content: $0.content) }
+        return assemble(
             system: system,
-            history: history,
+            history: orderedHistory,
             knowledgeContext: knowledgeContext,
+            profileContext: profileContext,
+            toolHistoryContext: toolHistoryContext,
+            memoryContext: memoryContext,
+            runtimeClockContext: runtimeClockContext,
             newUserText: newUserText,
             imageDataURLs: imageDataURLs
         )
+    }
+
+    static func researchMessages(
+        system: String,
+        history: [ChatMessage],
+        researchQuestion: String,
+        researchSources: [ResearchSource],
+        knowledgeContext: String? = nil,
+        profileContext: ProfileContextSnapshot? = nil,
+        toolHistoryContext: ToolHistoryContextSnapshot? = nil,
+        memoryContext: MemoryContextSnapshot?,
+        runtimeClockContext: RuntimeClockContext? = nil,
+        newUserText: String,
+        imageDataURLs: [String] = [],
+        policy: ResearchContextBudgetPolicy = .chatDefault,
+        now: Date = Date(),
+        timeZone: TimeZone = .current
+    ) throws -> ResearchAssembledRequest {
+        let orderedHistory = history.sorted { lhs, rhs in
+            lhs.createdAt == rhs.createdAt ? lhs.id.uuidString < rhs.id.uuidString : lhs.createdAt < rhs.createdAt
+        }.map { ResearchHistoryMessage(role: $0.role, content: $0.content) }
+        let webEvidencePrefix: String
+        if let knowledgeContext, !knowledgeContext.isEmpty {
+            webEvidencePrefix = knowledgeContext + "\n\nWeb research evidence:\n"
+        } else {
+            webEvidencePrefix = "Web research evidence:\n"
+        }
+
+        let systemContent = MessagePrefix.systemContent(system: system)
+        let toolEvidenceBase = MessagePrefix.toolEvidenceContent(webEvidencePrefix)
+        let currentRequestCharacters = newUserText.count + imageDataURLs.reduce(0) { $0 + $1.count }
+        let mandatoryCharacters = systemContent.count + currentRequestCharacters +
+            MessagePrefix.toolEvidenceFraming.count + 2 + "Web research evidence:\n".count
+        let fixedCharacters = systemContent.count + currentRequestCharacters + toolEvidenceBase.count +
+            (profileContext?.messageContent.count ?? 0) +
+            (toolHistoryContext?.messageContent.count ?? 0) +
+            (memoryContext?.messageContent.count ?? 0) +
+            (runtimeClockContext?.messageContent.count ?? 0)
+        let budgeted = try ResearchContextBudgeter.prepare(
+            question: researchQuestion,
+            sources: researchSources,
+            history: orderedHistory,
+            fixedCharacterCount: fixedCharacters,
+            mandatoryCharacterCount: mandatoryCharacters,
+            policy: policy,
+            now: now,
+            timeZone: timeZone
+        )
+        let retainedHistory = budgeted.history.map { APIMessage(role: $0.role, content: $0.content) }
+        let finalKnowledgeContext = webEvidencePrefix + budgeted.evidencePrompt
+        let messages = assemble(
+            system: system,
+            history: retainedHistory,
+            knowledgeContext: finalKnowledgeContext,
+            profileContext: profileContext,
+            toolHistoryContext: toolHistoryContext,
+            memoryContext: memoryContext,
+            runtimeClockContext: runtimeClockContext,
+            newUserText: newUserText,
+            imageDataURLs: imageDataURLs
+        )
+        let actualCharacters = messages.reduce(0) { partial, message in
+            partial + message.content.count + message.imageDataURLs.reduce(0) { $0 + $1.count }
+        }
+        guard actualCharacters <= policy.maximumInputCharacters else {
+            throw ResearchContextBudgetError.fixedContextExceedsBudget(
+                requiredCharacters: actualCharacters,
+                maximumInputCharacters: policy.maximumInputCharacters
+            )
+        }
+        let usage = ResearchContextUsage(
+            maximumContextCharacters: budgeted.usage.maximumContextCharacters,
+            reservedHeadroomCharacters: budgeted.usage.reservedHeadroomCharacters,
+            maximumInputCharacters: budgeted.usage.maximumInputCharacters,
+            fixedCharacters: budgeted.usage.fixedCharacters,
+            historyOriginalCharacters: budgeted.usage.historyOriginalCharacters,
+            historyRetainedCharacters: budgeted.usage.historyRetainedCharacters,
+            evidenceOriginalCharacters: budgeted.usage.evidenceOriginalCharacters,
+            evidenceRetainedCharacters: budgeted.usage.evidenceRetainedCharacters,
+            totalRetainedInputCharacters: actualCharacters,
+            historyOriginalMessageCount: budgeted.usage.historyOriginalMessageCount,
+            historyRetainedMessageCount: budgeted.usage.historyRetainedMessageCount,
+            sourceCount: budgeted.usage.sourceCount,
+            truncatedSourceCount: budgeted.usage.truncatedSourceCount
+        )
+        return .init(messages: messages, usage: usage)
+    }
+
+    private static func assemble(
+        system: String,
+        history: [APIMessage],
+        knowledgeContext: String?,
+        profileContext: ProfileContextSnapshot?,
+        toolHistoryContext: ToolHistoryContextSnapshot?,
+        memoryContext: MemoryContextSnapshot?,
+        runtimeClockContext: RuntimeClockContext?,
+        newUserText: String,
+        imageDataURLs: [String]
+    ) -> [APIMessage] {
+        var messages = [APIMessage(role: "system", content: MessagePrefix.systemContent(system: system))]
         if let profileContext {
-            messages.insert(APIMessage(role: "system", content: profileContext.messageContent), at: 1)
+            messages.append(APIMessage(role: "system", content: profileContext.messageContent))
+        }
+        messages.append(contentsOf: history)
+        if let toolHistoryContext {
+            messages.append(APIMessage(role: "system", content: toolHistoryContext.messageContent))
+        }
+        if let knowledgeContext, !knowledgeContext.isEmpty {
+            messages.append(APIMessage(role: "system", content: MessagePrefix.toolEvidenceContent(knowledgeContext)))
         }
         if let memoryContext {
-            messages.insert(
-                APIMessage(role: "system", content: memoryContext.messageContent),
-                at: max(0, messages.count - 1)
-            )
+            messages.append(APIMessage(role: "system", content: memoryContext.messageContent))
         }
         if let runtimeClockContext {
-            messages.insert(
-                APIMessage(role: "system", content: runtimeClockContext.messageContent),
-                at: max(0, messages.count - 1)
-            )
+            messages.append(APIMessage(role: "system", content: runtimeClockContext.messageContent))
         }
+        messages.append(APIMessage(role: "user", content: newUserText, imageDataURLs: imageDataURLs))
         return messages
     }
 }

@@ -13,6 +13,7 @@ private enum ComposerToolMode: String, Identifiable {
 
 struct ChatView: View {
     let memoryService: MemoryService
+    let toolExecutionService: ToolExecutionService
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
@@ -253,6 +254,8 @@ struct ChatView: View {
             var fullReasoning = ""
             var fullContent = ""
             var completedSuccessfully = false
+            var runningToolExecutionIDs: Set<UUID> = []
+            var currentTurnToolExecutionIDs: [UUID] = []
             do {
                 try Task.checkCancellation()
                 // The Profile read is an O(1) actor-cache lookup and runs alongside the single
@@ -294,25 +297,130 @@ struct ChatView: View {
                     calls = []
                 }
                 var referenceSections: [String] = []
+                var researchQuestion: String?
+                var researchSources: [ResearchSource]?
                 for call in calls {
                     try Task.checkCancellation()
                     switch call {
                     case .searchKnowledge(let query, let limit):
                         toolStatus = "正在检索本地知识库…"
+                        let execution = try await toolExecutionService.begin(
+                            conversationID: conversation.id,
+                            userMessageID: user.id,
+                            assistantMessageID: assistant.id,
+                            toolName: "search_local_knowledge",
+                            query: query
+                        )
+                        runningToolExecutionIDs.insert(execution.id)
+                        currentTurnToolExecutionIDs.append(execution.id)
                         let results = LocalKnowledgeIndex.search(query, in: knowledgeBases, limit: limit)
-                        if !results.isEmpty { referenceSections.append("Local knowledge:\n" + LocalKnowledgeIndex.context(from: results)) }
+                        let localContext = results.isEmpty ? "" : LocalKnowledgeIndex.context(from: results)
+                        if !localContext.isEmpty { referenceSections.append("Local knowledge:\n" + localContext) }
+                        let envelope = ToolResultEnvelopeBuilder.localKnowledge(
+                            query: query,
+                            context: localContext,
+                            resultCount: results.count
+                        )
+                        _ = try await toolExecutionService.succeed(id: execution.id, envelope: envelope)
+                        runningToolExecutionIDs.remove(execution.id)
+#if DEBUG
+                        let persistedCharacters = (try? JSONEncoder.toolPersistence.encode(envelope))
+                            .flatMap { String(data: $0, encoding: .utf8) }?.count ?? 0
+                        print("[ToolExecution] tool=search_local_knowledge id=\(execution.id) query_chars=\(query.count) results=\(results.count) persisted_chars=\(persistedCharacters) current_evidence_chars=\(localContext.count)")
+#endif
                     case .deepResearch(let query):
                         toolStatus = "正在搜索并抓取可靠来源…"
                         conversation.mode = "research"
                         LiveActivityManager.shared.start(title: conversation.title, kind: "research", detail: "正在进行深度研究")
-                        let sources = try await LocalResearchService().gather(query: query)
-                        referenceSections.append("Web research evidence:\n" + LocalResearchService.evidencePrompt(question: query, sources: sources))
-                    case .createTask(let draft): pendingTaskAction = .init(mode: .create, draft: draft, enabled: true)
+                        let toolName = AssistantIntentRouter.isDeepResearchRequest(requestText) || selectedManualTool == .deepResearch
+                            ? "deep_research" : "web_search"
+                        let execution = try await toolExecutionService.begin(
+                            conversationID: conversation.id,
+                            userMessageID: user.id,
+                            assistantMessageID: assistant.id,
+                            toolName: toolName,
+                            query: query
+                        )
+                        runningToolExecutionIDs.insert(execution.id)
+                        currentTurnToolExecutionIDs.append(execution.id)
+                        let gathered = try await LocalResearchService().gatherWithMetadata(query: query)
+                        researchQuestion = query
+                        researchSources = gathered.sources
+                        let envelope = try ToolResultEnvelopeBuilder.webSearch(
+                            toolName: toolName,
+                            query: query,
+                            provider: gathered.providerUsed.rawValue,
+                            sources: gathered.sources
+                        )
+                        _ = try await toolExecutionService.succeed(id: execution.id, envelope: envelope)
+                        runningToolExecutionIDs.remove(execution.id)
+#if DEBUG
+                        let persistedCharacters = (try? JSONEncoder.toolPersistence.encode(envelope))
+                            .flatMap { String(data: $0, encoding: .utf8) }?.count ?? 0
+                        let fetchedCharacters = gathered.sources.reduce(0) { $0 + $1.pageText.count }
+                        print("[ToolExecution] tool=\(toolName) id=\(execution.id) query_chars=\(query.count) provider=\(gathered.providerUsed.rawValue) sources=\(gathered.sources.count) persisted_chars=\(persistedCharacters) fetched_page_chars=\(fetchedCharacters)")
+#endif
+                    case .createTask(let draft):
+                        let execution = try await toolExecutionService.begin(
+                            conversationID: conversation.id,
+                            userMessageID: user.id,
+                            assistantMessageID: assistant.id,
+                            toolName: "create_scheduled_task",
+                            query: requestText
+                        )
+                        runningToolExecutionIDs.insert(execution.id)
+                        currentTurnToolExecutionIDs.append(execution.id)
+                        pendingTaskAction = .init(mode: .create, draft: draft, enabled: true)
+                        _ = try await toolExecutionService.succeed(
+                            id: execution.id,
+                            envelope: ToolResultEnvelopeBuilder.preparedAction(
+                                toolName: "create_scheduled_task",
+                                query: requestText,
+                                action: "Prepared task draft titled \(draft.title); not saved until user confirmation."
+                            )
+                        )
+                        runningToolExecutionIDs.remove(execution.id)
                     case .editTask(let taskID, let draft, let enabled):
+                        let execution = try await toolExecutionService.begin(
+                            conversationID: conversation.id,
+                            userMessageID: user.id,
+                            assistantMessageID: assistant.id,
+                            toolName: "edit_scheduled_task",
+                            query: requestText
+                        )
+                        runningToolExecutionIDs.insert(execution.id)
+                        currentTurnToolExecutionIDs.append(execution.id)
                         guard let task = tasks.first(where: { $0.id == taskID }) else { throw NSError(domain: "AssistantTools", code: 404, userInfo: [NSLocalizedDescriptionKey: "找不到要编辑的定时任务，请先打开任务页刷新。"] ) }
                         pendingTaskAction = .init(mode: .edit(task), draft: draft, enabled: enabled)
+                        _ = try await toolExecutionService.succeed(
+                            id: execution.id,
+                            envelope: ToolResultEnvelopeBuilder.preparedAction(
+                                toolName: "edit_scheduled_task",
+                                query: requestText,
+                                action: "Prepared an edit for task \(taskID); not saved until user confirmation."
+                            )
+                        )
+                        runningToolExecutionIDs.remove(execution.id)
                     case .manageKnowledge(let action):
+                        let execution = try await toolExecutionService.begin(
+                            conversationID: conversation.id,
+                            userMessageID: user.id,
+                            assistantMessageID: assistant.id,
+                            toolName: "manage_local_knowledge",
+                            query: requestText
+                        )
+                        runningToolExecutionIDs.insert(execution.id)
+                        currentTurnToolExecutionIDs.append(execution.id)
                         try prepareKnowledgeAction(action, assistant: assistant)
+                        _ = try await toolExecutionService.succeed(
+                            id: execution.id,
+                            envelope: ToolResultEnvelopeBuilder.preparedAction(
+                                toolName: "manage_local_knowledge",
+                                query: requestText,
+                                action: "Prepared knowledge action \(action.action); not applied until user confirmation."
+                            )
+                        )
+                        runningToolExecutionIDs.remove(execution.id)
                     }
                     try Task.checkCancellation()
                 }
@@ -322,16 +430,52 @@ struct ChatView: View {
                 else if !assistant.content.isEmpty { /* Immediate local tool result is already complete. */ }
                 else {
                     toolStatus = referenceSections.isEmpty ? "正在生成回答…" : "工具执行完成，正在整理回答…"
-                    let requestMessages = ChatRequestAssembler.messages(
-                        system: conversation.systemPrompt,
-                        history: history,
-                        knowledgeContext: referenceSections.joined(separator: "\n\n"),
-                        profileContext: profileContext,
-                        memoryContext: retrievedMemoryContext,
-                        runtimeClockContext: runtimeClockContext,
-                        newUserText: requestText,
-                        imageDataURLs: imageDataURLs
+                    let toolHistoryContext = await toolExecutionService.contextForChat(
+                        conversationID: conversation.id,
+                        excludingIDs: currentTurnToolExecutionIDs
                     )
+                    let currentKnowledgeContext = referenceSections.joined(separator: "\n\n")
+                    let requestMessages: [APIMessage]
+                    if let researchQuestion, let researchSources {
+                        let assembled = try ChatRequestAssembler.researchMessages(
+                            system: conversation.systemPrompt,
+                            history: history,
+                            researchQuestion: researchQuestion,
+                            researchSources: researchSources,
+                            knowledgeContext: currentKnowledgeContext,
+                            profileContext: profileContext,
+                            toolHistoryContext: toolHistoryContext,
+                            memoryContext: retrievedMemoryContext,
+                            runtimeClockContext: runtimeClockContext,
+                            newUserText: requestText,
+                            imageDataURLs: imageDataURLs
+                        )
+                        requestMessages = assembled.messages
+#if DEBUG
+                        let usage = assembled.usage
+                        print(
+                            "[ResearchBudget] input=\(usage.totalRetainedInputCharacters)/\(usage.maximumInputCharacters) " +
+                            "headroom=\(usage.reservedHeadroomCharacters) history=\(usage.historyRetainedCharacters)/\(usage.historyOriginalCharacters) " +
+                            "evidence=\(usage.evidenceRetainedCharacters)/\(usage.evidenceOriginalCharacters) " +
+                            "sources=\(usage.sourceCount) truncated_sources=\(usage.truncatedSourceCount)"
+                        )
+#endif
+                    } else {
+                        requestMessages = ChatRequestAssembler.messages(
+                            system: conversation.systemPrompt,
+                            history: history,
+                            knowledgeContext: currentKnowledgeContext,
+                            profileContext: profileContext,
+                            toolHistoryContext: toolHistoryContext,
+                            memoryContext: retrievedMemoryContext,
+                            runtimeClockContext: runtimeClockContext,
+                            newUserText: requestText,
+                            imageDataURLs: imageDataURLs
+                        )
+                    }
+#if DEBUG
+                    print("[ToolHistory] prior_count=\(toolHistoryContext?.executions.count ?? 0) chars=\(toolHistoryContext?.characterCount ?? 0) roles=\(requestMessages.map(\.role).joined(separator: ","))")
+#endif
                     var pendingReasoning = "", pendingContent = ""
                     var lastRender = Date.distantPast
                     for try await delta in APIClient().stream(messages: requestMessages, model: conversation.model, thinking: thinking, reasoningEffort: effort) {
@@ -369,10 +513,14 @@ struct ChatView: View {
                 }
                 completedSuccessfully = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             } catch is CancellationError {
+                for id in runningToolExecutionIDs { await toolExecutionService.cancel(id: id) }
                 if !fullReasoning.isEmpty { assistant.reasoning = fullReasoning }
                 if !fullContent.isEmpty { assistant.content = fullContent }
                 if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
             } catch {
+                for id in runningToolExecutionIDs {
+                    await toolExecutionService.fail(id: id, errorCode: String(describing: type(of: error)))
+                }
                 if !fullReasoning.isEmpty { assistant.reasoning = fullReasoning }
                 if !fullContent.isEmpty { assistant.content = fullContent }
                 if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
