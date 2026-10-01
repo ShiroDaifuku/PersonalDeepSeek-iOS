@@ -102,8 +102,29 @@ struct AgentRunMetrics: Codable, Equatable, Sendable {
     var tools: [AgentToolMetrics] = []
     var usage = AgentUsage()
     var totalMilliseconds: Double = 0
+    var usageReportedRoundCount = 0
+    var estimatedCost: AgentCostEstimate?
     var finalMilliseconds: Double { rounds.last?.latencyMilliseconds ?? 0 }
     var toolCallCount: Int { tools.count }
+}
+
+struct AgentCostEstimate: Codable, Equatable, Sendable {
+    let currency: String
+    let lowerBound: Double
+    let upperBound: Double
+    let pricingAsOf: String
+    // A range avoids pretending we know provider holiday/peak billing boundaries.
+    static func estimate(model: String, usage: AgentUsage) -> AgentCostEstimate? {
+        let rates: (Double, Double, Double)
+        switch model {
+        case "deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp": rates = (0.006, 0.3, 1.2)
+        case "deepseek-v4-pro": rates = (0.044, 1.32, 3.96)
+        default: return nil
+        }
+        let missing = max(usage.cacheMissTokens, usage.promptTokens - usage.cacheHitTokens)
+        let upper = (Double(usage.cacheHitTokens) * rates.0 + Double(missing) * rates.1 + Double(usage.completionTokens) * rates.2) / 1_000_000
+        return .init(currency: "USD", lowerBound: upper / 2, upperBound: upper, pricingAsOf: "2026-10-01")
+    }
 }
 
 struct AgentLoopBudget: Sendable, Equatable {
@@ -132,16 +153,30 @@ struct AgentRequest: Sendable {
     let enabledTools: [String]
     let manualToolName: String?
     let budget: AgentLoopBudget
+    let contextSnapshot: AgentContextSnapshot?
 
     init(runID: UUID = UUID(), conversationID: UUID, userMessageID: UUID, assistantMessageID: UUID,
          model: String, thinking: Bool, reasoningEffort: String, messages: [APIMessage],
-         enabledTools: [String] = [], manualToolName: String? = nil, budget: AgentLoopBudget = .production) {
+         enabledTools: [String] = [], manualToolName: String? = nil, budget: AgentLoopBudget = .production,
+         contextSnapshot: AgentContextSnapshot? = nil) {
         self.runID = runID; self.conversationID = conversationID
         self.userMessageID = userMessageID; self.assistantMessageID = assistantMessageID
         self.model = model; self.thinking = thinking; self.reasoningEffort = reasoningEffort
         self.messages = messages; self.enabledTools = enabledTools
         self.manualToolName = manualToolName; self.budget = budget
+        self.contextSnapshot = contextSnapshot
     }
+}
+
+struct AgentContextSnapshot: Sendable {
+    let baseSystem: String
+    let profile: ProfileContextSnapshot?
+    let history: [AgentHistorySnapshot]
+    let priorToolHistory: ToolHistoryContextSnapshot?
+    let atomicMemory: MemoryContextSnapshot?
+    let runtimeClock: RuntimeClockContext
+    let currentUser: String
+    let images: [String]
 }
 
 struct AgentHistorySnapshot: Sendable {

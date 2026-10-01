@@ -49,7 +49,8 @@ struct AgentRunner: Sendable {
                     reasoningContent: "", toolCalls: message.toolCalls, toolCallID: message.toolCallID)
             }
         }
-        var metrics = AgentRunMetrics(), successfulSignatures = Set<String>(), seenIDs = Set<String>()
+        var metrics = AgentRunMetrics(), successfulSignatures = Set<String>()
+        var seenIDs = Set(transcript.flatMap { $0.toolCalls ?? [] }.map(\.id))
         var physicalCalls = 0, allReasoning = ""
         let clock = ContinuousClock(), runStart = clock.now
         for round in 1...budget.maxRounds {
@@ -63,6 +64,7 @@ struct AgentRunner: Sendable {
             let start = clock.now
             var firstToken: ContinuousClock.Instant?, content = "", reasoning = "", reason: String?
             var accumulator = ToolCallAccumulator(), ended = false, usage = AgentUsage()
+            var receivedUsage = false
             var contentChunks: [String] = []
             for try await delta in model.streamRound(input) {
                 try Task.checkCancellation()
@@ -82,7 +84,7 @@ struct AgentRunner: Sendable {
                 case .finishReason(let value):
                     guard reason == nil || reason == value else { throw AgentError.protocolViolation }
                     reason = value
-                case .detailedUsage(let value): usage = value
+                case .detailedUsage(let value): usage = value; receivedUsage = true
                 case .done: ended = true
                 case .usage: break
                 }
@@ -95,6 +97,7 @@ struct AgentRunner: Sendable {
                 ttftMilliseconds: firstToken.map { milliseconds(start.duration(to: $0)) },
                 latencyMilliseconds: milliseconds(start.duration(to: clock.now)), finishReason: finishReason)
             metrics.rounds.append(roundMetrics); metrics.usage.add(usage)
+            if receivedUsage { metrics.usageReportedRoundCount += 1 }
             continuation.yield(.roundCompleted(roundMetrics)); continuation.yield(.usage(usage))
 #if DEBUG
             print("[Agent] run=\(request.runID) round=\(round) finish=\(finishReason) calls=\(calls.count) usage=\(usage.promptTokens + usage.completionTokens)")
@@ -107,6 +110,9 @@ struct AgentRunner: Sendable {
                 // its buffered content after stop proves it is the final response round.
                 for chunk in contentChunks { continuation.yield(.contentDelta(chunk)) }
                 metrics.totalMilliseconds = milliseconds(runStart.duration(to: clock.now))
+                if metrics.usageReportedRoundCount == metrics.rounds.count {
+                    metrics.estimatedCost = AgentCostEstimate.estimate(model: request.model, usage: metrics.usage)
+                }
                 continuation.yield(.finalAnswer(content: content, reasoning: allReasoning, metrics: metrics))
                 return
             }

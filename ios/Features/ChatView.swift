@@ -465,7 +465,11 @@ struct ChatView: View {
                         messages: nativeTools.isEmpty ? requestMessages : AgentInitialMessages.preservingReasoning(requestMessages, history: agentHistory),
                         enabledTools: nativeTools,
                         manualToolName: selectedManualTool == .webSearch ? "web_search" :
-                            (selectedManualTool == .knowledge ? "local_knowledge_search" : nil))
+                            (selectedManualTool == .knowledge ? "local_knowledge_search" : nil),
+                        contextSnapshot: .init(baseSystem: conversation.systemPrompt, profile: profileContext,
+                            history: agentHistory, priorToolHistory: toolHistoryContext,
+                            atomicMemory: retrievedMemoryContext, runtimeClock: runtimeClockContext,
+                            currentUser: requestText, images: imageDataURLs))
                     let runner = AgentRunner(model: APIClient(), executor: ReadOnlyToolExecutor(localSearch: { query, limit in
                         await localAdapter.search(query, limit: limit)
                     }), persistence: toolExecutionService)

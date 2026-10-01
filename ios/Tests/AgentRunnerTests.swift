@@ -182,6 +182,35 @@ enum AgentTestFixtures {
         XCTAssertFalse(events.contains { if case .contentDelta(let text) = $0 { return text.contains("hidden") }; return false })
     }
 
+    func testSuccessfulToolRemainsSucceededIfFinalResponseFails() async throws {
+        let service = ToolExecutionService(modelContainer: try AgentTestFixtures.container()), request = AgentTestFixtures.request()
+        do {
+            _ = try await AgentTestFixtures.collect(AgentRunner(model: ScriptedAgentModel(rounds: [AgentTestFixtures.toolRound(), [.done]]),
+                executor: FixtureAgentExecutor(), persistence: service).events(for: request))
+            XCTFail("Expected invalid final response")
+        } catch { }
+        let rows = try await service.store.records(conversationID: request.conversationID)
+        XCTAssertEqual(rows.first?.status, .succeeded)
+    }
+
+    func testUsageAccumulatesAcrossRounds() async throws {
+        let first = AgentUsage(promptTokens: 20, completionTokens: 5, reasoningTokens: 3, cacheHitTokens: 12, cacheMissTokens: 8)
+        let second = AgentUsage(promptTokens: 30, completionTokens: 10, reasoningTokens: 2, cacheHitTokens: 20, cacheMissTokens: 10)
+        let model = ScriptedAgentModel(rounds: [Array(AgentTestFixtures.toolRound().dropLast()) + [.detailedUsage(first), .done],
+            Array(AgentTestFixtures.finalRound.dropLast()) + [.detailedUsage(second), .done]])
+        let events = try await AgentTestFixtures.collect(AgentRunner(model: model, executor: FixtureAgentExecutor(),
+            persistence: ToolExecutionService(modelContainer: try AgentTestFixtures.container())).events(for: AgentTestFixtures.request()))
+        for event in events {
+            if case .finalAnswer(_, _, let metrics) = event {
+                XCTAssertEqual(metrics.usage.promptTokens, 50)
+                XCTAssertEqual(metrics.usage.reasoningTokens, 5)
+                XCTAssertEqual(metrics.usage.cacheHitTokens, 32)
+                XCTAssertEqual(metrics.usageReportedRoundCount, 2)
+                XCTAssertNotNil(metrics.estimatedCost)
+            }
+        }
+    }
+
     func testMultipleCallsExecuteSeriallyInProviderOrder() async throws {
         let round = AgentTestFixtures.toolRound()
         let second = StreamDelta.toolCall(ToolCallFragment(index: 1, id: "call_2", type: "function",

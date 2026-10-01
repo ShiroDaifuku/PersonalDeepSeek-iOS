@@ -69,6 +69,12 @@ private struct NativeEvaluationRecord: Codable {
             let m = record.metrics
             lines.append("| \(record.caseID) | \(record.passed ? "PASS" : "FAIL") | \(m?.rounds.count ?? 0) | \(m?.tools.count ?? 0) | \(record.physicalExecutions) | \(m?.totalMilliseconds ?? 0) | \(m?.usage.promptTokens ?? 0) | \(m?.usage.completionTokens ?? 0) | \(m?.usage.cacheHitTokens ?? 0) | \(m?.usage.cacheMissTokens ?? 0) |")
             lines += ["", "## \(record.caseID)", record.response, record.error ?? ""]
+            if let metrics = record.metrics {
+                lines.append("Usage reported in \(metrics.usageReportedRoundCount)/\(metrics.rounds.count) rounds; reasoning tokens: \(metrics.usage.reasoningTokens)")
+                if let cost = metrics.estimatedCost { lines.append("Estimated USD cost range: \(cost.lowerBound)–\(cost.upperBound), pricing as of \(cost.pricingAsOf)") }
+                for round in metrics.rounds { lines.append("Round \(round.round): TTFT \(round.ttftMilliseconds ?? -1) ms, completion \(round.latencyMilliseconds) ms, finish \(round.finishReason)") }
+                for tool in metrics.tools { lines.append("Tool \(tool.toolName): \(tool.latencyMilliseconds) ms, physical=\(tool.physicallyExecuted), status=\(tool.status)") }
+            }
         }
         try lines.joined(separator: "\n").write(to: directory.appendingPathComponent("native-agent-evaluation.md"), atomically: true, encoding: .utf8)
         XCTAssertTrue(records.allSatisfy(\.passed), "See native-agent-evaluation report")
