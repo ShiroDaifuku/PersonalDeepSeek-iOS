@@ -1,220 +1,411 @@
 import Foundation
 
-enum AssistantToolCall: Equatable, Sendable {
-    case searchKnowledge(query: String, limit: Int)
-    case deepResearch(query: String)
-    case createTask(TaskDraft)
-    case editTask(taskID: String, draft: TaskDraft, enabled: Bool)
-    case manageKnowledge(action: KnowledgeManagementAction)
+struct ResearchContextBudgetPolicy: Sendable, Equatable {
+    var maximumContextCharacters: Int
+    var reservedHeadroomCharacters: Int
+    var maximumHistoryCharacters: Int
+    var maximumEvidenceCharacters: Int
+    var maximumPageTextCharactersPerSource: Int
+    var maximumSnippetCharactersPerSource: Int
+    var maximumTitleCharactersPerSource: Int
+
+    static let chatDefault = ResearchContextBudgetPolicy(
+        maximumContextCharacters: 64_000,
+        reservedHeadroomCharacters: 16_000,
+        maximumHistoryCharacters: 12_000,
+        maximumEvidenceCharacters: 26_000,
+        maximumPageTextCharactersPerSource: 6_000,
+        maximumSnippetCharactersPerSource: 1_200,
+        maximumTitleCharactersPerSource: 500
+    )
+
+    var maximumInputCharacters: Int {
+        max(0, maximumContextCharacters - reservedHeadroomCharacters)
+    }
 }
 
-struct KnowledgeBaseToolDescriptor: Codable, Equatable, Sendable {
-    let id: String
-    let name: String
-    let enabled: Bool
-    let documentCount: Int
-    let cloudSyncEnabled: Bool
+struct ResearchHistoryMessage: Sendable, Equatable {
+    let role: String
+    let content: String
 }
 
-struct KnowledgeManagementAction: Codable, Equatable, Sendable {
-    let action: String
-    let knowledgeBaseID: String
-    let name: String
-    let enabled: Bool
-    enum CodingKeys: String, CodingKey { case action, name, enabled; case knowledgeBaseID = "knowledge_base_id" }
-}
+struct ResearchContextUsage: Sendable, Equatable {
+    let maximumContextCharacters: Int
+    let reservedHeadroomCharacters: Int
+    let maximumInputCharacters: Int
+    let fixedCharacters: Int
+    let historyOriginalCharacters: Int
+    let historyRetainedCharacters: Int
+    let evidenceOriginalCharacters: Int
+    let evidenceRetainedCharacters: Int
+    let totalRetainedInputCharacters: Int
+    let historyOriginalMessageCount: Int
+    let historyRetainedMessageCount: Int
+    let sourceCount: Int
+    let truncatedSourceCount: Int
 
-struct PendingKnowledgeAction: Identifiable, Equatable {
-    let id = UUID()
-    let action: KnowledgeManagementAction
-    let currentName: String?
-}
-
-enum AssistantIntentRouter {
-    static func preferredTool(for text: String) -> String? {
-        let value = text.lowercased()
-        let editWords = ["修改任务", "编辑任务", "把任务", "改成", "暂停任务", "恢复任务", "edit task", "reschedule"]
-        if editWords.contains(where: value.contains) { return "edit_scheduled_task" }
-        let scheduleWords = ["提醒我", "定时", "每天", "每周", "每月", "明天", "后天", "小时后", "分钟后", "schedule", "remind me", "every day", "every week"]
-        if scheduleWords.contains(where: value.contains) { return "create_scheduled_task" }
-        let researchWords = ["深度研究", "深入研究", "deep search", "deep research", "联网搜索", "搜索网页", "查最新", "最新", "今天", "今日", "新闻", "实时", "当前价格", "现在价格", "天气", "汇率", "股价", "latest", "recent", "news", "weather", "price today"]
-        if researchWords.contains(where: value.contains) { return "start_deep_search" }
-        let manageWords = ["创建知识库", "新建知识库", "删除知识库", "重命名知识库", "启用知识库", "停用知识库", "导入到知识库", "添加到知识库", "有哪些知识库", "管理知识库"]
-        if manageWords.contains(where: value.contains) { return "manage_local_knowledge" }
-        let knowledgeWords = ["我的笔记", "我的文档", "知识库", "资料库", "本地资料", "private notes", "knowledge base"]
-        if knowledgeWords.contains(where: value.contains) { return "search_local_knowledge" }
-        return nil
+    var historyTruncatedCharacters: Int {
+        max(0, historyOriginalCharacters - historyRetainedCharacters)
     }
 
-    /// Search and local retrieval do not need a second model round-trip once
-    /// the user or the deterministic router has selected the capability.
-    /// Keeping these calls model-independent prevents one model from claiming
-    /// it cannot browse while another model happens to emit valid tool JSON.
-    static func directCall(for preferredTool: String, query: String) -> AssistantToolCall? {
-        switch preferredTool {
-        case "start_deep_search": return .deepResearch(query: researchQuery(from: query))
-        case "search_local_knowledge": return .searchKnowledge(query: query, limit: 6)
-        default: return nil
+    var evidenceTruncatedCharacters: Int {
+        max(0, evidenceOriginalCharacters - evidenceRetainedCharacters)
+    }
+
+    var wasHistoryTrimmed: Bool {
+        historyRetainedCharacters < historyOriginalCharacters ||
+            historyRetainedMessageCount < historyOriginalMessageCount
+    }
+
+    var wasEvidenceTrimmed: Bool {
+        evidenceRetainedCharacters < evidenceOriginalCharacters || truncatedSourceCount > 0
+    }
+}
+
+struct ResearchContextBudgetResult: Sendable, Equatable {
+    let history: [ResearchHistoryMessage]
+    let evidenceSources: [ResearchSource]
+    let evidencePrompt: String
+    let truncatedSourceNumbers: Set<Int>
+    let usage: ResearchContextUsage
+}
+
+enum ResearchContextBudgetError: LocalizedError, Sendable, Equatable {
+    case invalidPolicy
+    case mandatoryContentExceedsBudget(requiredCharacters: Int, maximumInputCharacters: Int)
+    case fixedContextExceedsBudget(requiredCharacters: Int, maximumInputCharacters: Int)
+    case sourceIdentityExceedsBudget(requiredCharacters: Int, availableCharacters: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPolicy:
+            "深度研究上下文预算配置无效。"
+        case .mandatoryContentExceedsBudget(let required, let maximum):
+            "当前请求和必要系统指令共 \(required) 字符，超过深度研究输入预算 \(maximum) 字符。当前问题未被删除，请缩短请求或附件后重试。"
+        case .fixedContextExceedsBudget(let required, let maximum):
+            "必要上下文共 \(required) 字符，超过深度研究输入预算 \(maximum) 字符。请减少本轮附件或历史工具内容后重试。"
+        case .sourceIdentityExceedsBudget(let required, let available):
+            "搜索来源的标题和地址共 \(required) 字符，超过可用研究证据预算 \(available) 字符。"
+        }
+    }
+}
+
+enum ResearchContextBudgeter {
+    private static let historyTruncationMarker = "\n[history content truncated]"
+
+    static func prepare(
+        question: String,
+        sources: [ResearchSource],
+        history: [ResearchHistoryMessage],
+        fixedCharacterCount: Int,
+        mandatoryCharacterCount: Int,
+        policy: ResearchContextBudgetPolicy = .chatDefault,
+        now: Date = Date(),
+        timeZone: TimeZone = .current
+    ) throws -> ResearchContextBudgetResult {
+        guard policy.maximumContextCharacters > 0,
+              policy.reservedHeadroomCharacters >= 0,
+              policy.maximumInputCharacters > 0,
+              policy.maximumHistoryCharacters >= 0,
+              policy.maximumEvidenceCharacters > 0,
+              policy.maximumPageTextCharactersPerSource >= 0,
+              policy.maximumSnippetCharactersPerSource >= 0,
+              policy.maximumTitleCharactersPerSource > 0,
+              fixedCharacterCount >= 0,
+              mandatoryCharacterCount >= 0 else {
+            throw ResearchContextBudgetError.invalidPolicy
+        }
+        guard mandatoryCharacterCount <= policy.maximumInputCharacters else {
+            throw ResearchContextBudgetError.mandatoryContentExceedsBudget(
+                requiredCharacters: mandatoryCharacterCount,
+                maximumInputCharacters: policy.maximumInputCharacters
+            )
+        }
+        guard fixedCharacterCount <= policy.maximumInputCharacters else {
+            throw ResearchContextBudgetError.fixedContextExceedsBudget(
+                requiredCharacters: fixedCharacterCount,
+                maximumInputCharacters: policy.maximumInputCharacters
+            )
+        }
+
+        let availableFlexible = policy.maximumInputCharacters - fixedCharacterCount
+        let evidenceLimit = min(policy.maximumEvidenceCharacters, availableFlexible)
+        let originalEvidence = LocalResearchService.evidencePrompt(
+            question: question,
+            sources: sources,
+            now: now,
+            timeZone: timeZone
+        )
+        let preparedMetadata = try metadataSources(
+            question: question,
+            sources: sources,
+            evidenceLimit: evidenceLimit,
+            policy: policy,
+            now: now,
+            timeZone: timeZone
+        )
+        let nonemptySourceNumbers = Set(preparedMetadata.enumerated().compactMap { index, source in
+            sources[index].pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : index + 1
+        })
+        let minimumEvidence = LocalResearchService.evidencePrompt(
+            question: question,
+            sources: preparedMetadata,
+            truncatedSourceNumbers: nonemptySourceNumbers,
+            now: now,
+            timeZone: timeZone
+        )
+        guard minimumEvidence.count <= evidenceLimit else {
+            throw ResearchContextBudgetError.sourceIdentityExceedsBudget(
+                requiredCharacters: minimumEvidence.count,
+                availableCharacters: evidenceLimit
+            )
+        }
+
+        let historyLimit = min(
+            policy.maximumHistoryCharacters,
+            max(0, availableFlexible - minimumEvidence.count)
+        )
+        let retainedHistory = selectRecentHistory(history, maximumCharacters: historyLimit)
+        let retainedHistoryCharacters = retainedHistory.reduce(0) { $0 + $1.content.count }
+        let bodyBudget = min(
+            max(0, evidenceLimit - minimumEvidence.count),
+            max(0, availableFlexible - minimumEvidence.count - retainedHistoryCharacters)
+        )
+        let evidenceAllocation = allocatePageText(
+            originalSources: sources,
+            metadataSources: preparedMetadata,
+            totalCharacters: bodyBudget,
+            perSourceCeiling: policy.maximumPageTextCharactersPerSource
+        )
+        let evidencePrompt = LocalResearchService.evidencePrompt(
+            question: question,
+            sources: evidenceAllocation.sources,
+            truncatedSourceNumbers: evidenceAllocation.truncatedSourceNumbers,
+            now: now,
+            timeZone: timeZone
+        )
+        let totalRetained = fixedCharacterCount + retainedHistoryCharacters + evidencePrompt.count
+        guard totalRetained <= policy.maximumInputCharacters else {
+            throw ResearchContextBudgetError.fixedContextExceedsBudget(
+                requiredCharacters: totalRetained,
+                maximumInputCharacters: policy.maximumInputCharacters
+            )
+        }
+
+        let historyOriginalCharacters = history.reduce(0) { $0 + $1.content.count }
+        let usage = ResearchContextUsage(
+            maximumContextCharacters: policy.maximumContextCharacters,
+            reservedHeadroomCharacters: policy.reservedHeadroomCharacters,
+            maximumInputCharacters: policy.maximumInputCharacters,
+            fixedCharacters: fixedCharacterCount,
+            historyOriginalCharacters: historyOriginalCharacters,
+            historyRetainedCharacters: retainedHistoryCharacters,
+            evidenceOriginalCharacters: originalEvidence.count,
+            evidenceRetainedCharacters: evidencePrompt.count,
+            totalRetainedInputCharacters: totalRetained,
+            historyOriginalMessageCount: history.count,
+            historyRetainedMessageCount: retainedHistory.count,
+            sourceCount: sources.count,
+            truncatedSourceCount: evidenceAllocation.truncatedSourceNumbers.count
+        )
+        return .init(
+            history: retainedHistory,
+            evidenceSources: evidenceAllocation.sources,
+            evidencePrompt: evidencePrompt,
+            truncatedSourceNumbers: evidenceAllocation.truncatedSourceNumbers,
+            usage: usage
+        )
+    }
+
+    private static func metadataSources(
+        question: String,
+        sources: [ResearchSource],
+        evidenceLimit: Int,
+        policy: ResearchContextBudgetPolicy,
+        now: Date,
+        timeZone: TimeZone
+    ) throws -> [ResearchSource] {
+        let unboundedMetadata = sources.map {
+            ResearchSource(id: $0.id, title: $0.title, url: $0.url, snippet: $0.snippet)
+        }
+        let truncatedNumbers = Set(sources.enumerated().compactMap { index, source in
+            source.pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : index + 1
+        })
+        let unboundedPrompt = LocalResearchService.evidencePrompt(
+            question: question,
+            sources: unboundedMetadata,
+            truncatedSourceNumbers: truncatedNumbers,
+            now: now,
+            timeZone: timeZone
+        )
+        if unboundedPrompt.count <= evidenceLimit { return unboundedMetadata }
+
+        let capped = sources.map { source in
+            ResearchSource(
+                id: source.id,
+                title: boundedPrefix(source.title, maximum: policy.maximumTitleCharactersPerSource),
+                url: source.url,
+                snippet: boundedPrefix(source.snippet, maximum: policy.maximumSnippetCharactersPerSource)
+            )
+        }
+        let cappedPrompt = LocalResearchService.evidencePrompt(
+            question: question,
+            sources: capped,
+            truncatedSourceNumbers: truncatedNumbers,
+            now: now,
+            timeZone: timeZone
+        )
+        if cappedPrompt.count <= evidenceLimit { return capped }
+
+        let withoutSnippets = capped.map {
+            ResearchSource(id: $0.id, title: $0.title, url: $0.url, snippet: "")
+        }
+        let baseline = LocalResearchService.evidencePrompt(
+            question: question,
+            sources: withoutSnippets,
+            truncatedSourceNumbers: truncatedNumbers,
+            now: now,
+            timeZone: timeZone
+        )
+        guard baseline.count <= evidenceLimit else {
+            throw ResearchContextBudgetError.sourceIdentityExceedsBudget(
+                requiredCharacters: baseline.count,
+                availableCharacters: evidenceLimit
+            )
+        }
+        let snippetAllocations = fairAllocations(
+            capacities: capped.map { $0.snippet.count },
+            total: evidenceLimit - baseline.count
+        )
+        return capped.enumerated().map { index, source in
+            ResearchSource(
+                id: source.id,
+                title: source.title,
+                url: source.url,
+                snippet: boundedPrefix(source.snippet, maximum: snippetAllocations[index])
+            )
         }
     }
 
-    private static func researchQuery(from text: String) -> String {
-        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        for directive in ["请联网搜索", "联网搜索一下", "联网搜索", "搜索网页", "查一下最新", "查最新", "deep search", "deep research"] {
-            value = value.replacingOccurrences(of: directive, with: "", options: [.caseInsensitive])
+    private static func allocatePageText(
+        originalSources: [ResearchSource],
+        metadataSources: [ResearchSource],
+        totalCharacters: Int,
+        perSourceCeiling: Int
+    ) -> (sources: [ResearchSource], truncatedSourceNumbers: Set<Int>) {
+        let texts = originalSources.map(\.pageText)
+        let capacities = texts.map { min($0.count, perSourceCeiling) }
+        let allocations = fairAllocations(capacities: capacities, total: totalCharacters)
+        var truncated: Set<Int> = []
+        let values = metadataSources.enumerated().map { index, source in
+            if allocations[index] < texts[index].count { truncated.insert(index + 1) }
+            return ResearchSource(
+                id: source.id,
+                title: source.title,
+                url: source.url,
+                snippet: source.snippet,
+                pageText: boundedPrefix(texts[index], maximum: allocations[index])
+            )
         }
-        value = value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
-        return value.isEmpty ? text : value
+        return (values, truncated)
     }
-}
 
-struct PendingTaskAction: Identifiable, Equatable {
-    enum Mode: Equatable { case create; case edit(RemoteTask) }
-    let id = UUID()
-    let mode: Mode
-    let draft: TaskDraft
-    let enabled: Bool
-}
-
-private struct ToolPlanResponse: Decodable {
-    struct Choice: Decodable {
-        struct Message: Decodable {
-            struct ToolCall: Decodable {
-                struct Function: Decodable { let name: String; let arguments: String }
-                let function: Function
+    private static func selectRecentHistory(
+        _ history: [ResearchHistoryMessage],
+        maximumCharacters: Int
+    ) -> [ResearchHistoryMessage] {
+        guard maximumCharacters > 0 else { return [] }
+        let turns = coherentTurns(history)
+        var selected: [[ResearchHistoryMessage]] = []
+        var remaining = maximumCharacters
+        for turn in turns.reversed() {
+            let count = turn.reduce(0) { $0 + $1.content.count }
+            if count <= remaining {
+                selected.append(turn)
+                remaining -= count
+                continue
             }
-            let toolCalls: [ToolCall]?
-            enum CodingKeys: String, CodingKey { case toolCalls = "tool_calls" }
+            if selected.isEmpty, remaining > 0 {
+                let truncated = truncateTurn(turn, maximumCharacters: remaining)
+                if !truncated.isEmpty { selected.append(truncated) }
+            }
+            break
         }
-        let message: Message
-    }
-    let choices: [Choice]
-}
-
-private struct KnowledgeArguments: Codable { let query: String; let limit: Int }
-private struct ResearchArguments: Codable { let query: String }
-private struct EditTaskArguments: Codable {
-    let taskID: String
-    let title: String
-    let kind: String
-    let schedule: TaskSchedule
-    let prompt: String
-    let tools: [String]
-    let notify: Bool
-    let knowledgeBaseIDs: [String]
-    let enabled: Bool
-    enum CodingKeys: String, CodingKey { case taskID = "task_id", title, kind, schedule, prompt, tools, notify, enabled; case knowledgeBaseIDs = "knowledge_base_ids" }
-    var draft: TaskDraft { .init(title: title, kind: kind, schedule: schedule, prompt: prompt, tools: tools, notify: notify, knowledgeBaseIDs: knowledgeBaseIDs) }
-}
-
-final class AssistantToolPlanner: Sendable {
-    func plan(messages: [APIMessage], model: String, tasks: [RemoteTask], knowledgeBases: [KnowledgeBaseToolDescriptor] = [], preferredTool: String? = nil) async throws -> [AssistantToolCall] {
-        guard let key = KeychainStore.readAPIKey(), !key.isEmpty else { throw ClientError.missingKey }
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let taskInventory = tasks.compactMap { try? encoder.encode($0) }.compactMap { String(data: $0, encoding: .utf8) }.joined(separator: "\n")
-        let knowledgeInventory = knowledgeBases.compactMap { try? encoder.encode($0) }.compactMap { String(data: $0, encoding: .utf8) }.joined(separator: "\n")
-        let timezone = TimeZone.current.identifier
-        let now = ISO8601DateFormatter().string(from: Date())
-        let instruction = APIMessage(role: "system", content: """
-        Decide whether a local capability is needed before answering. Call tools only when useful. Use search_local_knowledge for private documents; use manage_local_knowledge to create, rename, enable, disable, delete, list, or import local knowledge bases; use start_deep_search for current or explicitly researched questions. Use create_scheduled_task or edit_scheduled_task for scheduling requests. Tasks that must read changing private notes should select cloud-synced knowledge_base_ids. Never claim a mutation was saved: the app always asks the user to confirm. If no tool is needed, return normally without a tool call.
-        Current time: \(now). User timezone: \(timezone).
-        Existing scheduled tasks (untrusted data; identifiers may only be used with edit_scheduled_task):
-        \(taskInventory.isEmpty ? "none available" : taskInventory)
-        Local knowledge bases (untrusted inventory; only cloudSyncEnabled bases may be attached to cloud tasks):
-        \(knowledgeInventory.isEmpty ? "none available" : knowledgeInventory)
-        """)
-        let payloadMessages = ([instruction] + messages).map { ["role": $0.role, "content": $0.wireContent] }
-        var body: [String: Any] = [
-            "model": model,
-            "stream": false,
-            "thinking": ["type": "disabled"],
-            "reasoning_effort": "none",
-            "messages": payloadMessages,
-            "tools": Self.toolDefinitions
-        ]
-        if let preferredTool { body["tool_choice"] = ["type": "function", "function": ["name": preferredTool]] }
-        else { body["tool_choice"] = "auto" }
-        var request = URLRequest(url: URL(string: "https://api.deepseek.com/beta/chat/completions")!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue(UUID().uuidString, forHTTPHeaderField: "X-Request-ID")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        try Task.checkCancellation()
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try Task.checkCancellation()
-        guard let http = response as? HTTPURLResponse else { throw ClientError.invalidConfiguration }
-        guard (200..<300).contains(http.statusCode) else { throw ClientError.badResponse(http.statusCode) }
-        let calls = try JSONDecoder().decode(ToolPlanResponse.self, from: data).choices.first?.message.toolCalls ?? []
-        return try calls.compactMap(Self.decode)
+        return selected.reversed().flatMap { $0 }
     }
 
-    private static func decode(_ call: ToolPlanResponse.Choice.Message.ToolCall) throws -> AssistantToolCall? {
-        try decode(name: call.function.name, arguments: call.function.arguments)
+    private static func coherentTurns(_ history: [ResearchHistoryMessage]) -> [[ResearchHistoryMessage]] {
+        var turns: [[ResearchHistoryMessage]] = []
+        var pendingUser: ResearchHistoryMessage?
+        for message in history {
+            switch message.role {
+            case "user":
+                if let pendingUser { turns.append([pendingUser]) }
+                pendingUser = message
+            case "assistant":
+                guard let user = pendingUser else { continue }
+                turns.append([user, message])
+                pendingUser = nil
+            default:
+                continue
+            }
+        }
+        if let pendingUser { turns.append([pendingUser]) }
+        return turns
     }
 
-    static func decode(name: String, arguments: String) throws -> AssistantToolCall? {
-        let data = Data(arguments.utf8)
-        switch name {
-        case "search_local_knowledge":
-            let value = try JSONDecoder().decode(KnowledgeArguments.self, from: data)
-            return .searchKnowledge(query: value.query, limit: min(max(value.limit, 1), 10))
-        case "start_deep_search":
-            return .deepResearch(query: try JSONDecoder().decode(ResearchArguments.self, from: data).query)
-        case "create_scheduled_task":
-            return .createTask(try JSONDecoder().decode(TaskDraft.self, from: data))
-        case "edit_scheduled_task":
-            let value = try JSONDecoder().decode(EditTaskArguments.self, from: data)
-            return .editTask(taskID: value.taskID, draft: value.draft, enabled: value.enabled)
-        case "manage_local_knowledge":
-            return .manageKnowledge(action: try JSONDecoder().decode(KnowledgeManagementAction.self, from: data))
-        default:
-            return nil
+    private static func truncateTurn(
+        _ turn: [ResearchHistoryMessage],
+        maximumCharacters: Int
+    ) -> [ResearchHistoryMessage] {
+        let allocations = fairAllocations(
+            capacities: turn.map { $0.content.count },
+            total: maximumCharacters
+        )
+        return turn.enumerated().compactMap { index, message in
+            guard allocations[index] > 0 else { return nil }
+            return .init(
+                role: message.role,
+                content: boundedWithMarker(
+                    message.content,
+                    maximum: allocations[index],
+                    marker: historyTruncationMarker
+                )
+            )
         }
     }
 
-    private static var scheduleSchema: [String: Any] { [
-        "type": "object", "additionalProperties": false,
-        "properties": [
-            "type": ["type": "string", "enum": ["once", "rrule", "cron"]],
-            "expression": ["type": "string"],
-            "timezone": ["type": "string"]
-        ],
-        "required": ["type", "expression", "timezone"]
-    ] }
-
-    private static var taskProperties: [String: Any] { [
-        "title": ["type": "string", "maxLength": 120],
-        "kind": ["type": "string", "enum": ["one_off", "recurring", "monitor"]],
-        "schedule": scheduleSchema,
-        "prompt": ["type": "string", "maxLength": 20_000],
-        "tools": ["type": "array", "items": ["type": "string", "enum": ["none", "web_search", "web_fetch"]], "maxItems": 3],
-        "notify": ["type": "boolean"],
-        "knowledge_base_ids": ["type": "array", "items": ["type": "string"], "maxItems": 20]
-    ] }
-
-    private static func tool(_ name: String, _ description: String, properties: [String: Any], required: [String]) -> [String: Any] {
-        ["type": "function", "function": [
-            "name": name, "description": description, "strict": true,
-            "parameters": ["type": "object", "additionalProperties": false, "properties": properties, "required": required]
-        ]]
+    private static func fairAllocations(capacities: [Int], total: Int) -> [Int] {
+        guard !capacities.isEmpty, total > 0 else { return Array(repeating: 0, count: capacities.count) }
+        var allocations = Array(repeating: 0, count: capacities.count)
+        var remaining = min(total, capacities.reduce(0, +))
+        var active = capacities.indices.filter { capacities[$0] > 0 }
+        while remaining > 0, !active.isEmpty {
+            let share = max(1, remaining / active.count)
+            var progressed = false
+            for index in active where remaining > 0 {
+                let grant = min(share, capacities[index] - allocations[index], remaining)
+                if grant > 0 {
+                    allocations[index] += grant
+                    remaining -= grant
+                    progressed = true
+                }
+            }
+            active.removeAll { allocations[$0] >= capacities[$0] }
+            if !progressed { break }
+        }
+        return allocations
     }
 
-    private static var toolDefinitions: [[String: Any]] { [
-        tool("search_local_knowledge", "Search enabled private knowledge bases stored only on this device.", properties: [
-            "query": ["type": "string", "maxLength": 500], "limit": ["type": "integer", "minimum": 1, "maximum": 10]
-        ], required: ["query", "limit"]),
-        tool("start_deep_search", "Search the web, fetch sources, and synthesize a cited research answer on this device.", properties: [
-            "query": ["type": "string", "maxLength": 500]
-        ], required: ["query"]),
-        tool("manage_local_knowledge", "Prepare a local knowledge-base operation for confirmation, or list current bases. For create use an empty knowledge_base_id; for list use empty ID and name.", properties: [
-            "action": ["type": "string", "enum": ["create", "rename", "enable", "disable", "delete", "list", "import"]],
-            "knowledge_base_id": ["type": "string"], "name": ["type": "string", "maxLength": 120], "enabled": ["type": "boolean"]
-        ], required: ["action", "knowledge_base_id", "name", "enabled"]),
-        tool("create_scheduled_task", "Prepare a one-off, recurring, or monitoring task for user confirmation. Minimum interval is one hour. Select cloud-synced knowledge_base_ids only when live private knowledge is required.", properties: taskProperties, required: ["title", "kind", "schedule", "prompt", "tools", "notify", "knowledge_base_ids"]),
-        tool("edit_scheduled_task", "Prepare a complete replacement for an existing task. The user must confirm before saving.", properties: taskProperties.merging([
-            "task_id": ["type": "string"], "enabled": ["type": "boolean"]
-        ]) { _, new in new }, required: ["task_id", "title", "kind", "schedule", "prompt", "tools", "notify", "knowledge_base_ids", "enabled"])
-    ] }
+    private static func boundedPrefix(_ value: String, maximum: Int) -> String {
+        guard maximum > 0 else { return "" }
+        return value.count <= maximum ? value : String(value.prefix(maximum))
+    }
+
+    private static func boundedWithMarker(_ value: String, maximum: Int, marker: String) -> String {
+        guard maximum > 0 else { return "" }
+        guard value.count > maximum else { return value }
+        guard maximum > marker.count else { return String(value.prefix(maximum)) }
+        return String(value.prefix(maximum - marker.count)) + marker
+    }
 }

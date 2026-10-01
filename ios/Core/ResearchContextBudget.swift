@@ -81,11 +81,11 @@ enum ResearchContextBudgetError: LocalizedError, Sendable, Equatable {
         case .invalidPolicy:
             "深度研究上下文预算配置无效。"
         case .mandatoryContentExceedsBudget(let required, let maximum):
-            "当前请求和必要系统指令共 (required) 字符，超过深度研究输入预算 (maximum) 字符。当前问题未被删除，请缩短请求或附件后重试。"
+            "当前请求和必要系统指令共 \(required) 字符，超过深度研究输入预算 \(maximum) 字符。当前问题未被删除，请缩短请求或附件后重试。"
         case .fixedContextExceedsBudget(let required, let maximum):
-            "必要上下文共 (required) 字符，超过深度研究输入预算 (maximum) 字符。请减少本轮附件或历史工具内容后重试。"
+            "必要上下文共 \(required) 字符，超过深度研究输入预算 \(maximum) 字符。请减少本轮附件或历史工具内容后重试。"
         case .sourceIdentityExceedsBudget(let required, let available):
-            "搜索来源的标题和地址共 (required) 字符，超过可用研究证据预算 (available) 字符。"
+            "搜索来源的标题和地址共 \(required) 字符，超过可用研究证据预算 \(available) 字符。"
         }
     }
 }
