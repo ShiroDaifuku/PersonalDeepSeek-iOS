@@ -92,7 +92,7 @@ final class ToolHistoryRealEvaluationTests: XCTestCase {
             .init(
                 id: "A-awareness", query: "你刚刚联网了吗？只回答是否，以及依据。", context: context,
                 required: [["是", "进行过", "执行过"], ["搜索", "联网", "web_search"]],
-                forbidden: ["无法联网", "没有联网", "不能联网"]
+                forbidden: ["否。", "无法联网", "没有联网", "不能联网"]
             ),
             .init(
                 id: "B-sources", query: "你刚才查了哪些来源？列出标题。", context: context,
