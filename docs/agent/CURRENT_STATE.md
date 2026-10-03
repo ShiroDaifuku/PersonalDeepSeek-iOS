@@ -20,7 +20,7 @@ DS-001 ResearchRun Foundation accepted: independent state, cumulative budgets, c
 
 Source ff0e3617268d27072cbe779ba2141137a3906e53 passed actual Simulator CI run 37119696346: build, 240 ordinary tests (16 skipped, zero failures), ResearchRun 10/10, selected generated-store migration 1/1 and local provider/retrieval evaluations 1/1 each. Independent review accepted source and the test-only repair. First run 37118022406 failed compilation due to a fixture helper named run shadowed by XCTestCase.run; it remains failed and is documented in docs/evaluations/ds-001/VALIDATION.md. Assertions and production model were unchanged by repair.
 
-DS-002 planning is prepared but not implemented. DS-002A pure plan/fixture coordination precedes DS-002B model adapter output/token/attempt/deadline accounting. See tasks/active/DS-002-research-planning.md. Current Chat Research remains single-pass.
+DS-002A is implemented in its dedicated task worktree and undergoing executable validation: bounded untrusted draft -> host-owned plan, global query deduplication/associations, injected planner/fake query coordinator, cumulative reservations and cooperative cancellation/deadlines. Independent static review accepted the source. See tasks/active/DS-002A-planning-contract.md. DS-002B model adapter output/token/attempt/deadline accounting remains planned. Current Chat Research remains single-pass.
 
 ## Known follow-ups
 

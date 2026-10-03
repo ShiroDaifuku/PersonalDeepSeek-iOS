@@ -11,6 +11,10 @@ on:
         description: Research-only diagnostic follow-up; do not repeat five Memory trials
         type: boolean
         default: false
+      research_contract_validation:
+        description: Research contracts regression and migration only (no IPA/live API/provider benchmarks)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,7 +25,7 @@ concurrency:
 
 jobs:
   integration-acceptance:
-    if: ${{ inputs.integration_acceptance == true }}
+    if: ${{ inputs.integration_acceptance == true && inputs.research_contract_validation != true }}
     uses: ./.github/workflows/ios-integration-acceptance.yml
     with:
       research_followup: ${{ inputs.research_followup }}
@@ -29,7 +33,7 @@ jobs:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
   validate-memory:
-    if: ${{ inputs.integration_acceptance != true }}
+    if: ${{ inputs.integration_acceptance != true || inputs.research_contract_validation == true }}
     name: Build and test on iOS Simulator
     runs-on: macos-15
     timeout-minutes: 45
@@ -101,6 +105,16 @@ jobs:
           echo "SIMULATOR_ID=$destination_id" >> "$GITHUB_ENV"
           echo "Selected Simulator: $destination_name ($destination_id)"
 
+      - name: Verify Research contract sources are in generated targets
+        if: ${{ inputs.research_contract_validation == true }}
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          project_file="PersonalDeepSeek.xcodeproj/project.pbxproj"
+          for source in ResearchRun.swift ResearchPlanning.swift ResearchPlanningCoordinator.swift ResearchRunTests.swift ResearchPlanningTests.swift; do
+            grep -q "$source" "$project_file"
+          done
+
       - name: Build for testing
         working-directory: ios
         run: |
@@ -128,7 +142,14 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/memory-tests.log"
 
-      - name: Run embedding provider evaluation
+      - name: Verify Research contract suites executed
+        if: ${{ inputs.research_contract_validation == true }}
+        run: |
+          set -euo pipefail
+          grep -q "Test Suite 'ResearchRunTests' passed" "$RUNNER_TEMP/memory-tests.log"
+          grep -q "Test Suite 'ResearchPlanningTests' passed" "$RUNNER_TEMP/memory-tests.log"
+
+      - name: Prepare evaluation test environment
         working-directory: ios
         run: |
           set -euo pipefail
@@ -165,6 +186,13 @@ jobs:
           with open(path, "wb") as destination:
               plistlib.dump(document, destination)
           PY
+
+      - name: Run embedding provider evaluation
+        if: ${{ inputs.research_contract_validation != true }}
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xctestrun="$(find "$RUNNER_TEMP/MemoryValidationDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
           xcodebuild \
             -xctestrun "$xctestrun" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
@@ -173,6 +201,7 @@ jobs:
             | tee "$RUNNER_TEMP/memory-provider-evaluation.log"
 
       - name: Run memory retrieval evaluation
+        if: ${{ inputs.research_contract_validation != true }}
         working-directory: ios
         run: |
           set -euo pipefail

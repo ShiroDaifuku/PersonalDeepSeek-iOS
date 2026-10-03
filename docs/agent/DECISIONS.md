@@ -11,3 +11,11 @@ Context: ToolExecutionRecord contains bounded conversation audit/history. Decisi
 ## ADR-003: Validate checkpoints before use
 
 Context: restored state is untrusted input and unit correctness must not require network. Decision: explicit time/budgets and validated versioned Codable state. Reject corrupted/future checkpoints. Alternative: unchecked mutable/synthesized DTOs. Reason: lifecycle and cumulative budget correctness. Consequence: serialization is not persistence or resume execution; no raw evidence, secrets, planner calls or Memory mutation in DS-001.
+
+## ADR-004: Untrusted draft and host-owned planning contract
+
+Context: a planner must not own permissions, run binding, budget or accepted plan IDs. Decision: bounded draft text is validated and normalized into a host-owned plan with stable IDs and global query deduplication/many-to-many question associations. Plan decoding checks structure; use checks expected ResearchRun binding. Alternative: accept model IDs/control fields or only validate at initial construction. Reason: keep configuration and state authoritative and prevent corrupt checkpoints bypassing limits. Consequence: DS-002A proves structural and fixture coordination correctness only; DS-002B adds the shared model adapter after explicit accounting.
+
+## ADR-005: Cumulative reservations and cooperative async deadlines
+
+Context: actor methods reenter across awaits; late callbacks and resource resets can violate research lifecycle. Decision: reject overlapping operations before awaiting, reserve work before calls, actively race remaining wall deadline and cancellation, preserve terminal state and attempted-work usage. Alternative: only check time before calling an adapter. Reason: bound cooperative async execution and prevent duplicate work or resurrection after cancellation. Consequence: dependency adapters must honor task cancellation; structured concurrency cannot forcibly terminate an uncooperative adapter. Successful DS-002A query dispatch stops at evaluating, not completed.
