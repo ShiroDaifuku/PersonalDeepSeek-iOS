@@ -1,0 +1,236 @@
+{
+  "cases" : [
+    {
+      "answer" : "4",
+      "case" : "no-tool",
+      "metrics" : {
+        "estimatedCost" : {
+          "currency" : "USD",
+          "lowerBound" : 1.8150000000000001e-05,
+          "pricingAsOf" : "2026-10-01",
+          "upperBound" : 3.6300000000000001e-05
+        },
+        "rounds" : [
+          {
+            "finishReason" : "stop",
+            "latencyMilliseconds" : 63454.799665999999,
+            "round" : 1,
+            "ttftMilliseconds" : 63358.547124999997
+          }
+        ],
+        "tools" : [
+
+        ],
+        "totalMilliseconds" : 63455.445749999999,
+        "usage" : {
+          "cacheHitTokens" : 0,
+          "cacheMissTokens" : 117,
+          "completionTokens" : 1,
+          "promptTokens" : 117,
+          "reasoningTokens" : 0
+        },
+        "usageReportedRoundCount" : 1
+      },
+      "passed" : true,
+      "physicalCalls" : 0,
+      "protocolError" : false,
+      "rounds" : 1,
+      "thinking" : false,
+      "thinkingReentryObserved" : false,
+      "toolBoundary" : "Real public search \/ no tool"
+    },
+    {
+      "answer" : "查到的官方来源如下（仅限 DeepSeek 官方站点）：\n\n**1. DeepSeek API 平台页 — https:\/\/www.deepseek.com\/en\/platform\/**\n- 明确列出了 **缓存命中（cache hit）** 的输入价格：DeepSeek-V4-Flash 每 100 万 tokens 输入（cache hit）US$ 0.87；DeepSeek-V4-Pro 为 US$ 0.28（两次搜索结果中该数字排列略有差异，建议以页面实际显示为准）。\n- 同时标注模型特性：**\"Auto-caching with reduced cache hit pricing\"**（自动缓存 + 更低的缓存命中定价）、支持最高 1M tokens 上下文、Agent 工具调用能力。\n- 页面自带提示：\"Prices may change. For details, see the API docs.\"（价格可能变动，详见 API 文档）。\n\n**2. DeepSeek 官网首页 — https:\/\/www.deepseek.com\/**\n- 提供 \"API 文档\" \/ \"API Docs\" 与 \"API 价格\" 入口，是获取 context caching 详细机制（如缓存粒度、命中条件、计费字段 `prompt_cache_hit_tokens` \/ `prompt_cache_miss_tokens` 等）的官方渠道。\n\n**需要说明的局限：** 本次搜索只抓到了平台页与首页的摘要，**没有直接抓取到 API 文档正文**（DeepSeek 的上下文硬盘缓存详细说明通常位于 `api-docs.deepseek.com` 的 \"Context Caching\" 页面，但该页未出现在本次返回结果中）。因此关于缓存的具体机制细节，我无法凭现有结果给出确切表述，只能确认官方确实提供自动缓存与缓存命中折扣这一事实，且价格以平台页\/API 文档实时显示为准。\n\n如需，我可以再针对性检索 `api-docs.deepseek.com context caching` 来尝试取得文档正文。",
+      "case" : "native-search",
+      "metrics" : {
+        "estimatedCost" : {
+          "currency" : "USD",
+          "lowerBound" : 0.00064606799999999997,
+          "pricingAsOf" : "2026-10-01",
+          "upperBound" : 0.0012921359999999999
+        },
+        "rounds" : [
+          {
+            "finishReason" : "tool_calls",
+            "latencyMilliseconds" : 778.98879099999999,
+            "round" : 1,
+            "ttftMilliseconds" : 607.155708
+          },
+          {
+            "finishReason" : "stop",
+            "latencyMilliseconds" : 2693.0534579999999,
+            "round" : 2,
+            "ttftMilliseconds" : 847.97199999999998
+          }
+        ],
+        "tools" : [
+          {
+            "latencyMilliseconds" : 1007.463167,
+            "physicallyExecuted" : true,
+            "round" : 1,
+            "status" : "succeeded",
+            "toolName" : "web_search"
+          },
+          {
+            "latencyMilliseconds" : 500.268416,
+            "physicallyExecuted" : true,
+            "round" : 1,
+            "status" : "succeeded",
+            "toolName" : "web_search"
+          }
+        ],
+        "totalMilliseconds" : 4981.7290410000005,
+        "usage" : {
+          "cacheHitTokens" : 256,
+          "cacheMissTokens" : 2246,
+          "completionTokens" : 514,
+          "promptTokens" : 2502,
+          "reasoningTokens" : 0
+        },
+        "usageReportedRoundCount" : 2
+      },
+      "passed" : true,
+      "physicalCalls" : 2,
+      "protocolError" : false,
+      "rounds" : 2,
+      "thinking" : false,
+      "thinkingReentryObserved" : false,
+      "toolBoundary" : "Real public search \/ no tool"
+    },
+    {
+      "answer" : "**名称：** Green Valley Park（来源：https:\/\/example.com\/park — 该页面标明为“controlled public evaluation fixture”，即测试用途的虚构数据，并非真实公园）\n\n**开放时间：** 09:00 开始开放（同一来源）\n\n说明：第一轮名称查询中未含开放时间，因此我按名称专门追加了第二轮查询。结果中未注明闭园时间或适用日期，仅供参考。",
+      "case" : "refinement",
+      "metrics" : {
+        "estimatedCost" : {
+          "currency" : "USD",
+          "lowerBound" : 0.00042963599999999995,
+          "pricingAsOf" : "2026-10-01",
+          "upperBound" : 0.0008592719999999999
+        },
+        "rounds" : [
+          {
+            "finishReason" : "tool_calls",
+            "latencyMilliseconds" : 877.53358300000002,
+            "round" : 1,
+            "ttftMilliseconds" : 629.10137499999996
+          },
+          {
+            "finishReason" : "tool_calls",
+            "latencyMilliseconds" : 832.98562500000003,
+            "round" : 2,
+            "ttftMilliseconds" : 722.37804200000005
+          },
+          {
+            "finishReason" : "stop",
+            "latencyMilliseconds" : 918.85587499999997,
+            "round" : 3,
+            "ttftMilliseconds" : 482.80925000000002
+          }
+        ],
+        "tools" : [
+          {
+            "latencyMilliseconds" : 4.6282920000000001,
+            "physicallyExecuted" : true,
+            "round" : 1,
+            "status" : "succeeded",
+            "toolName" : "web_search"
+          },
+          {
+            "latencyMilliseconds" : 4.726375,
+            "physicallyExecuted" : true,
+            "round" : 1,
+            "status" : "succeeded",
+            "toolName" : "web_search"
+          },
+          {
+            "latencyMilliseconds" : 6.4323329999999999,
+            "physicallyExecuted" : true,
+            "round" : 2,
+            "status" : "succeeded",
+            "toolName" : "web_search"
+          }
+        ],
+        "totalMilliseconds" : 2646.4088750000001,
+        "usage" : {
+          "cacheHitTokens" : 512,
+          "cacheMissTokens" : 1870,
+          "completionTokens" : 246,
+          "promptTokens" : 2382,
+          "reasoningTokens" : 0
+        },
+        "usageReportedRoundCount" : 3
+      },
+      "passed" : true,
+      "physicalCalls" : 3,
+      "protocolError" : false,
+      "rounds" : 3,
+      "thinking" : false,
+      "thinkingReentryObserved" : false,
+      "toolBoundary" : "Controlled public fixture; live model decisions and transport"
+    },
+    {
+      "answer" : "根据联网搜索到的官方页面，一个可核实的公开事实是：\n\n**DeepSeek API 平台提供自动上下文缓存（auto-caching），并对「缓存命中（cache hit）」的输入 token 采用更低的价格计费。**\n\n- 来源：DeepSeek 官方 API 平台页面 — https:\/\/www.deepseek.com\/en\/platform\/ （页面在列出 DeepSeek-V4-Flash \/ V4-Pro 模型时标注了 “Input (cache hit)” 价格项，并写明 “Auto-caching with reduced cache hit pricing”）。\n\n需要说明的限制：\n\n1. 本次搜索只返回了 DeepSeek 官网首页、API 平台首页和下载页，没有检索到 API 文档的具体缓存章节页面（如缓存生效条件、最小 token 数、TTL、命中判定等细节），因此这些细节我无法从现有结果确认。\n2. 抓取到的价格数字在摘要中被截断（如 “US$ 0 87”），不足以可靠还原具体数值，故此处不引用具体金额；准确价格请以官方价格页\/API 文档为准。\n3. 本次仅为检索，未访问或修改任何账户或配置。\n\n如果你需要，我可以再针对 “DeepSeek API 文档 缓存 最小长度 \/ TTL \/ cache hit 计费” 做一次更细化的检索。",
+      "case" : "thinking-reentry",
+      "metrics" : {
+        "estimatedCost" : {
+          "currency" : "USD",
+          "lowerBound" : 0.0008578679999999999,
+          "pricingAsOf" : "2026-10-01",
+          "upperBound" : 0.0017157359999999998
+        },
+        "rounds" : [
+          {
+            "finishReason" : "tool_calls",
+            "latencyMilliseconds" : 924.16587500000003,
+            "round" : 1,
+            "ttftMilliseconds" : 621.24587499999996
+          },
+          {
+            "finishReason" : "tool_calls",
+            "latencyMilliseconds" : 1275.4657500000001,
+            "round" : 2,
+            "ttftMilliseconds" : 845.56295799999998
+          },
+          {
+            "finishReason" : "stop",
+            "latencyMilliseconds" : 2549.8689169999998,
+            "round" : 3,
+            "ttftMilliseconds" : 712.16929200000004
+          }
+        ],
+        "tools" : [
+          {
+            "latencyMilliseconds" : 511.67291699999998,
+            "physicallyExecuted" : true,
+            "round" : 1,
+            "status" : "succeeded",
+            "toolName" : "web_search"
+          },
+          {
+            "latencyMilliseconds" : 608.86029099999996,
+            "physicallyExecuted" : true,
+            "round" : 2,
+            "status" : "succeeded",
+            "toolName" : "web_search"
+          }
+        ],
+        "totalMilliseconds" : 5871.0336669999997,
+        "usage" : {
+          "cacheHitTokens" : 256,
+          "cacheMissTokens" : 3406,
+          "completionTokens" : 577,
+          "promptTokens" : 3662,
+          "reasoningTokens" : 163
+        },
+        "usageReportedRoundCount" : 3
+      },
+      "passed" : true,
+      "physicalCalls" : 2,
+      "protocolError" : false,
+      "rounds" : 3,
+      "thinking" : true,
+      "thinkingReentryObserved" : true,
+      "toolBoundary" : "Real public search \/ no tool"
+    }
+  ]
+}

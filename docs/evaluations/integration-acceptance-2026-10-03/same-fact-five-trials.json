@@ -1,0 +1,122 @@
+[
+  {
+    "activeCount" : 1,
+    "canonicalTextPreserved" : true,
+    "classification" : "processed",
+    "completionTokens" : 75,
+    "newerConfirmationPreserved" : true,
+    "passed" : true,
+    "promptTokens" : 1067,
+    "rawExtraction" : {
+      "operations" : [
+        {
+          "action" : "reinforce",
+          "canonicalText" : "用户的电脑是 RTX 4070 Laptop。",
+          "confidence" : 0.94999999999999996,
+          "existingMemoryID" : "A8645826-AEF5-48C7-80EA-D315446E269B",
+          "importance" : 0.5,
+          "kind" : "durableFact"
+        }
+      ],
+      "schemaVersion" : 1
+    },
+    "reinforcementCount" : 1,
+    "trial" : 1
+  },
+  {
+    "activeCount" : 1,
+    "canonicalTextPreserved" : true,
+    "classification" : "processed",
+    "completionTokens" : 81,
+    "newerConfirmationPreserved" : true,
+    "passed" : true,
+    "promptTokens" : 1073,
+    "rawExtraction" : {
+      "operations" : [
+        {
+          "action" : "reinforce",
+          "canonicalText" : "用户的电脑是 RTX 4070 Laptop。",
+          "confidence" : 0.94999999999999996,
+          "existingMemoryID" : "D2324CFD-3103-4C1D-8E28-94F9676D2C83",
+          "importance" : 0.5,
+          "kind" : "durableFact"
+        }
+      ],
+      "schemaVersion" : 1
+    },
+    "reinforcementCount" : 1,
+    "trial" : 2
+  },
+  {
+    "activeCount" : 1,
+    "canonicalTextPreserved" : true,
+    "classification" : "processed",
+    "completionTokens" : 78,
+    "newerConfirmationPreserved" : true,
+    "passed" : true,
+    "promptTokens" : 1070,
+    "rawExtraction" : {
+      "operations" : [
+        {
+          "action" : "reinforce",
+          "canonicalText" : "用户的电脑是 RTX 4070 Laptop。",
+          "confidence" : 0.94999999999999996,
+          "existingMemoryID" : "EED3EE25-F0C4-4509-B1A4-7ACC355FC67F",
+          "importance" : 0.5,
+          "kind" : "durableFact"
+        }
+      ],
+      "schemaVersion" : 1
+    },
+    "reinforcementCount" : 1,
+    "trial" : 3
+  },
+  {
+    "activeCount" : 1,
+    "canonicalTextPreserved" : true,
+    "classification" : "processed",
+    "completionTokens" : 80,
+    "newerConfirmationPreserved" : true,
+    "passed" : true,
+    "promptTokens" : 1072,
+    "rawExtraction" : {
+      "operations" : [
+        {
+          "action" : "reinforce",
+          "canonicalText" : "用户的电脑是 RTX 4070 Laptop。",
+          "confidence" : 0.94999999999999996,
+          "existingMemoryID" : "81D0CA8B-D672-4C2F-8D74-16512D916E8C",
+          "importance" : 0.5,
+          "kind" : "durableFact"
+        }
+      ],
+      "schemaVersion" : 1
+    },
+    "reinforcementCount" : 1,
+    "trial" : 4
+  },
+  {
+    "activeCount" : 1,
+    "canonicalTextPreserved" : true,
+    "classification" : "processed",
+    "completionTokens" : 78,
+    "newerConfirmationPreserved" : true,
+    "passed" : true,
+    "promptTokens" : 1070,
+    "rawExtraction" : {
+      "operations" : [
+        {
+          "action" : "reinforce",
+          "canonicalText" : "用户的电脑是 RTX 4070 Laptop。",
+          "confidence" : 0.94999999999999996,
+          "existingMemoryID" : "7800509C-9FFF-4CA7-983F-F3791C73A9B8",
+          "importance" : 0.5,
+          "kind" : "durableFact"
+        }
+      ],
+      "schemaVersion" : 1
+    },
+    "reinforcementCount" : 1,
+    "trial" : 5
+  }
+]

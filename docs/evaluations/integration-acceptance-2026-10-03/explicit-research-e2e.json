@@ -1,0 +1,147 @@
+{
+  "actualSourceFactVerified" : true,
+  "citationNumbers" : [
+    2
+  ],
+  "currentResearchEvidenceOccurrences" : 1,
+  "currentResearchRoleToolDuplicates" : 0,
+  "deepResearchRouteCount" : 1,
+  "estimatedRequestBytes" : 22227,
+  "evidenceCharacters" : 18835,
+  "finalAnswer" : "## 核心事实：官方平台页面同时给出「自动缓存」与「缓存命中定价」\n\nDeepSeek API Platform 页面在模型定价区块下方明确列出一条能力说明：**Auto-caching with reduced cache hit pricing**（自动缓存，并配合降低后的缓存命中定价）[2]。也就是说，官方把「自动缓存」定位为平台默认提供的机制，并把它的经济价值直接体现在**缓存命中（cache hit）与缓存未命中（cache miss）的差别定价**上——而非另行收费的附加服务。\n\n## 官方页面列出的价格（每 1M tokens）\n\n| 模型 | 输入（缓存命中） | 输入（缓存未命中） | 输出 |\n|---|---|---|---|\n| DeepSeek-V4-Flash | US$ 0.0028 | US$ 0.14 | US$ 0.28 |\n| DeepSeek-V4-Pro | US$ 0.003625 | US$ 0.435 | US$ 0.87 |\n\n数据来自官方 API Platform 页面 [2]。\n\n## 折扣关系（基于上表的算术，非官方表述）\n\n- **V4-Flash**：缓存命中价是未命中价的 $\\frac{0.0028}{0.14}=0.02$，即**约 2 折中的 2%**，等价于便宜 **50 倍**，折扣约 **98%**。\n- **V4-Pro**：$\\frac{0.003625}{0.435} \\approx 0.00833$，等价于便宜 **120 倍**，折扣约 **99.17%**。\n\n需要强调两点，属**推断**而非来源原文：一是这些比例是我按页面数字计算的，页面本身没有写出「98%」「120 倍」之类表述；二是两个模型的命中\/未命中比值并不相同（Flash 1:50，Pro 1:120），说明官方并未采用跨模型统一的缓存折扣率，而是按模型单独定价 [2]。\n\n## 证据不足之处\n\n以下细节在本轮保留的来源正文中**没有**出现，因此无法确认：\n\n1. **自动缓存的判定规则**：前缀匹配长度、最小 token 门槛、缓存生命周期\/TTL、缓存是否跨请求或跨会话共享。\n2. **命中条件与失效条件**：何种改动会导致缓存失效。\n3. **折扣是否分时段或分批次变动**：页面标注 “Prices may change. For details, see the API docs.” [2]，实际规则指向 API 文档，而本轮未抓取到 API Docs 页面正文。\n\n如需确认上述机制细节，需要补充 DeepSeek 官方 API 文档（API Docs）中 caching \/ context caching 相关页面的内容。\n\n## 来源\n\n- [2] DeepSeek | API Platform — https:\/\/www.deepseek.com\/en\/platform\/",
+  "harnessBoundary" : "Production components; not SwiftUI UI automation",
+  "historyCharacters" : 0,
+  "maximumInputCharacters" : 48000,
+  "memoryBoundary" : "No raw evidence writes; production eligibility source-audited",
+  "memoryUnchanged" : true,
+  "messageContentCharacters" : [
+    222,
+    62,
+    498,
+    19207,
+    71,
+    319,
+    96
+  ],
+  "messageRoles" : [
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "user"
+  ],
+  "nativeWebSearchCalls" : 0,
+  "persistedAssistantNonempty" : true,
+  "productionBaseline" : "cb87131",
+  "profileUnchanged" : true,
+  "provider" : "bing_rss",
+  "query" : "DeepSeek API Platform auto-caching 官方平台的自动缓存与缓存命中折扣",
+  "route" : "start_deep_search",
+  "searchResultCount" : 6,
+  "snippetOnlyFallbackCount" : 0,
+  "sourceCount" : 6,
+  "sources" : [
+    {
+      "number" : 1,
+      "officialPlatform" : false,
+      "pageCharacters" : 533,
+      "parsedHost" : "www.deepseek.com",
+      "parsedPath" : "\/",
+      "publicCachingFactPresent" : false,
+      "snippetCharacters" : 198,
+      "title" : "DeepSeek | Into the Unknown",
+      "url" : "https:\/\/www.deepseek.com\/"
+    },
+    {
+      "number" : 2,
+      "officialPlatform" : true,
+      "pageCharacters" : 1152,
+      "parsedHost" : "www.deepseek.com",
+      "parsedPath" : "\/en\/platform",
+      "publicCachingFactPresent" : true,
+      "snippetCharacters" : 150,
+      "title" : "DeepSeek | API Platform",
+      "url" : "https:\/\/www.deepseek.com\/en\/platform\/"
+    },
+    {
+      "number" : 3,
+      "officialPlatform" : false,
+      "pageCharacters" : 12,
+      "parsedHost" : "download.deepseek.com",
+      "parsedPath" : "\/",
+      "publicCachingFactPresent" : false,
+      "snippetCharacters" : 121,
+      "title" : "DeepSeek App",
+      "url" : "https:\/\/download.deepseek.com\/"
+    },
+    {
+      "number" : 4,
+      "officialPlatform" : false,
+      "pageCharacters" : 4825,
+      "parsedHost" : "github.com",
+      "parsedPath" : "\/deepseek-ai",
+      "publicCachingFactPresent" : false,
+      "snippetCharacters" : 110,
+      "title" : "DeepSeek · GitHub",
+      "url" : "https:\/\/github.com\/deepseek-ai"
+    },
+    {
+      "number" : 5,
+      "officialPlatform" : false,
+      "pageCharacters" : 12000,
+      "parsedHost" : "en.wikipedia.org",
+      "parsedPath" : "\/wiki\/DeepSeek",
+      "publicCachingFactPresent" : false,
+      "snippetCharacters" : 247,
+      "title" : "DeepSeek - Wikipedia",
+      "url" : "https:\/\/en.wikipedia.org\/wiki\/DeepSeek"
+    },
+    {
+      "number" : 6,
+      "officialPlatform" : false,
+      "pageCharacters" : 4525,
+      "parsedHost" : "play.google.com",
+      "parsedPath" : "\/store\/apps\/details",
+      "publicCachingFactPresent" : false,
+      "snippetCharacters" : 195,
+      "title" : "DeepSeek - AI Assistant - Apps on Google Play",
+      "url" : "https:\/\/play.google.com\/store\/apps\/details?id=com.deepseek.chat&hl=en"
+    }
+  ],
+  "successfulPageFetchCount" : 6,
+  "synthesisCompletionCount" : 1,
+  "totalTextCharacters" : 20475,
+  "truncationOccurred" : true,
+  "usage" : {
+    "estimatedCost" : {
+      "currency" : "USD",
+      "lowerBound" : 0.001342134,
+      "pricingAsOf" : "2026-10-01",
+      "upperBound" : 0.0026842680000000001
+    },
+    "rounds" : [
+      {
+        "finishReason" : "stop",
+        "latencyMilliseconds" : 5175.4841249999999,
+        "round" : 1,
+        "ttftMilliseconds" : 1089.99575
+      }
+    ],
+    "tools" : [
+
+    ],
+    "totalMilliseconds" : 5175.800209,
+    "usage" : {
+      "cacheHitTokens" : 128,
+      "cacheMissTokens" : 5189,
+      "completionTokens" : 939,
+      "promptTokens" : 5317,
+      "reasoningTokens" : 341
+    },
+    "usageReportedRoundCount" : 1
+  },
+  "verifiedFactSourceURL" : "https:\/\/www.deepseek.com\/en\/platform\/",
+  "verifiedPublicSourceFact" : "Auto-caching with reduced cache hit pricing"
+}

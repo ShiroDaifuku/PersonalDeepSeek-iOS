@@ -1,0 +1,126 @@
+{
+  "actualSourceFactVerified" : false,
+  "citationNumbers" : [
+    1,
+    3,
+    4,
+    6
+  ],
+  "currentResearchEvidenceOccurrences" : 1,
+  "currentResearchRoleToolDuplicates" : 0,
+  "deepResearchRouteCount" : 1,
+  "estimatedRequestBytes" : 6478,
+  "evidenceCharacters" : 3265,
+  "finalAnswer" : "## 核心结论\n\nDeepSeek API 开放平台在页面上明确列出了 \"Auto-caching with reduced cache hit pricing\"（自动缓存 + 缓存命中的降价定价）[3]。也就是说，**自动缓存（auto-caching）与缓存命中折扣在同一处官方说明中被绑定呈现**：缓存命中（cache hit）的输入 token 价格显著低于未命中（cache miss）价格，而该缓存无需用户显式配置，属平台自动完成 [3]。\n\n## 官方定价与折扣幅度\n\n以下为 API Platform 页面列出的每 1M tokens 价格（美元）[3]：\n\n| 模型 | 输入·缓存命中 | 输入·缓存未命中 | 输出 |\n|---|---|---|---|\n| DeepSeek-V4-Flash | $0.0028 | $0.14 | $0.28 |\n| DeepSeek-V4-Pro | $0.003625 | $0.435 | $0.87 |\n\n由官方数字可计算（**推断**，非页面原文）：\n\n- **V4-Flash**：$0.0028 ÷ $0.14 = **2%**，即缓存命中输入相对未命中约 **98% off**。\n- **V4-Pro**：$0.003625 ÷ $0.435 ≈ **0.83%**，即约 **99.2% off**。\n\n两点值得注意：一是命中价与未命中价在**两个模型上并非同一折扣率**（2% vs 0.83%），说明折扣随模型\/档位不同 [3]；二是输出价格不区分命中与否，缓存优惠只作用于**输入侧** [3]。\n\n## 事实与推断的区分\n\n- **事实（页面明示）**：平台提供 auto-caching；缓存命中输入价低于缓存未命中输入价；上述具体价格数值；上下文支持最高 1M tokens [3]。\n- **推断**：折扣百分比由价格相除得出，页面未直接给出百分比表述 [3]。\n- **未获证实**：本轮证据**未包含**关于自动缓存的触发条件、缓存粒度（前缀\/块）、缓存生存时间（TTL）、是否按账户或按模型隔离、最小可缓存 token 长度等机制细节。这些通常写在 API 文档（API Docs）中，而该文档页面本轮未被抓取到 [3]。\n\n## 来源可靠性提示\n\n定价与 auto-caching 表述来自 `deepseek.com\/en\/platform\/` 的平台页 [3]。检索结果中还出现了若干疑似第三方镜像\/仿站（如 chats.mixinnet.cn、deepseek-kc.com.cn）[4][6]，这些**并非官方域名**，其内容不应作为定价或缓存机制的依据。\n\n## 如需进一步核实\n\n若你要用于成本估算或产品决策，建议直接查阅官方 API Docs 中的 caching 章节，以确认：缓存命中的计费判定方式、TTL 与失效规则、以及\"输入 (cache hit\/miss)\"是否还细分其他档位 [3]。本轮的缺口就在这里——机制层面的官方细节尚未取得。\n\n## 来源\n\n1. DeepSeek | API Platform — https:\/\/www.deepseek.com\/en\/platform\/ [3]\n2. DeepSeek | 深度求索（官网首页）— https:\/\/www.deepseek.com\/ [1]",
+  "harnessBoundary" : "Production components; not SwiftUI UI automation",
+  "historyCharacters" : 0,
+  "maximumInputCharacters" : 48000,
+  "memoryBoundary" : "No raw evidence writes; production eligibility source-audited",
+  "memoryUnchanged" : true,
+  "messageContentCharacters" : [
+    222,
+    62,
+    498,
+    3637,
+    71,
+    319,
+    96
+  ],
+  "messageRoles" : [
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "system",
+    "user"
+  ],
+  "nativeWebSearchCalls" : 0,
+  "persistedAssistantNonempty" : true,
+  "productionBaseline" : "cb87131",
+  "profileUnchanged" : true,
+  "provider" : "bing_rss",
+  "query" : "DeepSeek API Platform auto-caching 官方平台的自动缓存与缓存命中折扣",
+  "route" : "start_deep_search",
+  "searchResultCount" : 6,
+  "snippetOnlyFallbackCount" : 2,
+  "sourceCount" : 6,
+  "sources" : [
+    {
+      "number" : 1,
+      "pageCharacters" : 533,
+      "snippetCharacters" : 198,
+      "title" : "DeepSeek | Into the Unknown",
+      "url" : "https:\/\/www.deepseek.com\/"
+    },
+    {
+      "number" : 2,
+      "pageCharacters" : 8,
+      "snippetCharacters" : 104,
+      "title" : "DeepSeek",
+      "url" : "https:\/\/cdn.deepseek.com\/"
+    },
+    {
+      "number" : 3,
+      "pageCharacters" : 1152,
+      "snippetCharacters" : 150,
+      "title" : "DeepSeek | API Platform",
+      "url" : "https:\/\/www.deepseek.com\/en\/platform\/"
+    },
+    {
+      "number" : 4,
+      "pageCharacters" : 0,
+      "snippetCharacters" : 135,
+      "title" : "DeepSeek | 深度求索",
+      "url" : "https:\/\/chats.mixinnet.cn\/deepseek.html"
+    },
+    {
+      "number" : 5,
+      "pageCharacters" : 157,
+      "snippetCharacters" : 104,
+      "title" : "DeepSeek - Into the Unknown",
+      "url" : "https:\/\/chat.deepseek.com\/sign_in"
+    },
+    {
+      "number" : 6,
+      "pageCharacters" : 0,
+      "snippetCharacters" : 116,
+      "title" : "DeepSeek | 深度求索-官网",
+      "url" : "https:\/\/deepseek-kc.com.cn\/"
+    }
+  ],
+  "successfulPageFetchCount" : 4,
+  "synthesisCompletionCount" : 1,
+  "totalTextCharacters" : 4905,
+  "truncationOccurred" : false,
+  "usage" : {
+    "estimatedCost" : {
+      "currency" : "USD",
+      "lowerBound" : 0.00098550000000000005,
+      "pricingAsOf" : "2026-10-01",
+      "upperBound" : 0.0019710000000000001
+    },
+    "rounds" : [
+      {
+        "finishReason" : "stop",
+        "latencyMilliseconds" : 6302.3238339999998,
+        "round" : 1,
+        "ttftMilliseconds" : 389.74529200000001
+      }
+    ],
+    "tools" : [
+
+    ],
+    "totalMilliseconds" : 6302.4487909999998,
+    "usage" : {
+      "cacheHitTokens" : 0,
+      "cacheMissTokens" : 1530,
+      "completionTokens" : 1260,
+      "promptTokens" : 1530,
+      "reasoningTokens" : 555
+    },
+    "usageReportedRoundCount" : 1
+  },
+  "verifiedFactSourceURL" : "",
+  "verifiedPublicSourceFact" : "Auto-caching with reduced cache hit pricing"
+}

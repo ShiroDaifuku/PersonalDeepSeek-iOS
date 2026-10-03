@@ -1,0 +1,9 @@
+{
+  "deepResearchRouteCount" : 1,
+  "error" : "The request timed out.",
+  "errorType" : "NSURLError",
+  "harnessBoundary" : "Production components; not SwiftUI UI automation",
+  "productionBaseline" : "cb87131",
+  "query" : "DeepSeek API context caching prompt_cache_hit_tokens 官方文档",
+  "route" : "start_deep_search"
+}
