@@ -3,6 +3,10 @@ name: Integration Final E2E Acceptance (no IPA)
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      research_followup:
+        type: boolean
+        default: false
     secrets:
       DEEPSEEK_API_KEY:
         required: true
@@ -119,17 +123,31 @@ jobs:
           visit(document)
           with open(path, 'wb') as destination: plistlib.dump(document, destination)
           PY
-      - name: Real Explicit Deep Research and native smoke
+      - name: Recorded public no-tool simulator network preflight
+        run: |
+          set -o pipefail
+          xcodebuild -xctestrun "$ACCEPTANCE_XCTESTRUN" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/IntegrationAcceptanceTests/testOptInPublicNetworkReadiness \
+            test-without-building | tee "$RUNNER_TEMP/acceptance/network-readiness.log"
+      - name: Real Explicit Deep Research
         run: |
           set -o pipefail
           xcodebuild -xctestrun "$ACCEPTANCE_XCTESTRUN" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -only-testing:PersonalDeepSeekTests/IntegrationAcceptanceTests/testOptInExplicitResearchEndToEnd \
-            -only-testing:PersonalDeepSeekTests/IntegrationAcceptanceTests/testOptInNativeProtocolSmoke \
             -resultBundlePath "$RUNNER_TEMP/acceptance/real-e2e.xcresult" test-without-building \
             | tee "$RUNNER_TEMP/acceptance/real-e2e.log"
+      - name: Native protocol smoke
+        if: ${{ !cancelled() && steps.real-environment.outcome == 'success' && inputs.research_followup != true }}
+        run: |
+          set -o pipefail
+          xcodebuild -xctestrun "$ACCEPTANCE_XCTESTRUN" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/IntegrationAcceptanceTests/testOptInNativeProtocolSmoke \
+            test-without-building | tee "$RUNNER_TEMP/acceptance/native-smoke.log"
       - name: Five independent frozen same_fact trials
-        if: ${{ !cancelled() && steps.real-environment.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.real-environment.outcome == 'success' && inputs.research_followup != true }}
         run: |
           set -o pipefail
           xcodebuild -xctestrun "$ACCEPTANCE_XCTESTRUN" \

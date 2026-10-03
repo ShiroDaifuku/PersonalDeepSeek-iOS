@@ -8,6 +8,20 @@ import XCTest
 @MainActor final class IntegrationAcceptanceTests: XCTestCase {
     private let publicQuery = "DeepSeek API context caching prompt_cache_hit_tokens 官方文档"
 
+    func testOptInPublicNetworkReadiness() async throws {
+        let key = try realKey()
+        let start = ContinuousClock.now
+        var answer = ""
+        for try await delta in APIClient(apiKey: key).stream(messages: [
+            .init(role: "user", content: "2+2 等于多少？只回答数字。")
+        ], model: DeepSeekModelCompatibility.flash, thinking: false, reasoningEffort: "low") {
+            if case .content(let value) = delta { answer += value }
+        }
+        XCTAssertTrue(answer.contains("4"))
+        try write(["purpose": "Explicitly recorded no-tool simulator network preflight; outside Research route",
+            "answer": answer, "duration": String(describing: start.duration(to: .now))], named: "network-readiness.json")
+    }
+
     func testResearchImageAndPersonalContextCoexistWithoutDuplication() throws {
         let image = "data:image/png;base64,YWNjZXB0YW5jZS1pbWFnZQ=="
         let assembled = try assemble(sources: [source()], image: image)

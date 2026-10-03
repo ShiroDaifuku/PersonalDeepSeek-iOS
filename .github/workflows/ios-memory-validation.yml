@@ -7,6 +7,10 @@ on:
         description: Run opt-in final integration E2E acceptance (no IPA)
         type: boolean
         default: false
+      research_followup:
+        description: Research-only diagnostic follow-up; do not repeat five Memory trials
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,6 +23,8 @@ jobs:
   integration-acceptance:
     if: ${{ inputs.integration_acceptance == true }}
     uses: ./.github/workflows/ios-integration-acceptance.yml
+    with:
+      research_followup: ${{ inputs.research_followup }}
     secrets:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
