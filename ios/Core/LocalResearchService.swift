@@ -5,6 +5,7 @@ protocol ResearchDNSResolving: Sendable {
     func addresses(for host: String) async throws -> [String]
 }
 
+/// Accounted injected fetchers issue one application HTTP request and refuse automatic redirects.
 protocol ResearchHTTPFetching: Sendable {
     func data(for request: URLRequest) async throws -> ResearchHTTPResponse
 }
@@ -28,7 +29,7 @@ struct ResearchHTTPResponse: Sendable {
 }
 
 final class URLSessionResearchHTTPFetcher: ResearchHTTPFetching, @unchecked Sendable {
-    private let session: URLSession
+    let session: URLSession
 
     init(session: URLSession) { self.session = session }
 
@@ -314,12 +315,17 @@ enum LocalResearchError: LocalizedError, Sendable {
     }
 }
 
+enum ResearchHTTPAdmissionKind: Sendable, Equatable { case search(ResearchProvider), page }
+typealias ResearchHTTPAdmission = @Sendable (ResearchHTTPAdmissionKind) async throws -> Void
+struct ResearchHTTPAdmissionError: Error { let cause: any Error }
+
 final class LocalResearchService: Sendable {
     static let maximumRedirects = 5
     static let maximumPageBytes = 1_500_000
     static let maximumPageCharacters = 12_000
 
     private let searchFetcher: any ResearchHTTPFetching
+    private let accountedSearchFetcher: any ResearchHTTPFetching
     private let pageFetcher: any ResearchHTTPFetching
     private let urlPolicy: ResearchURLPolicy
     private let searchAPIKey: @Sendable () -> String?
@@ -329,9 +335,11 @@ final class LocalResearchService: Sendable {
         resolver: any ResearchDNSResolving = SystemResearchDNSResolver(),
         searchFetcher: (any ResearchHTTPFetching)? = nil,
         pageFetcher: (any ResearchHTTPFetching)? = nil,
+        accountedSearchFetcher: (any ResearchHTTPFetching)? = nil,
         searchAPIKey: @escaping @Sendable () -> String? = { KeychainStore.readSearchAPIKey() }
     ) {
         self.searchFetcher = searchFetcher ?? URLSessionResearchHTTPFetcher(session: session)
+        self.accountedSearchFetcher = accountedSearchFetcher ?? ResearchHTTPFetcherFactory.noRedirect()
         self.pageFetcher = pageFetcher ?? ResearchHTTPFetcherFactory.noRedirect()
         urlPolicy = ResearchURLPolicy(resolver: resolver)
         self.searchAPIKey = searchAPIKey
@@ -342,7 +350,7 @@ final class LocalResearchService: Sendable {
     }
 
     func gatherWithMetadata(query: String, limit: Int = 6) async throws -> ResearchGatherResult {
-        let searched = try await searchWithProvider(query: query, limit: limit)
+        let searched = try await searchWithMetadata(query: query, limit: limit)
         let rows = searched.sources
         let gathered = try await withThrowingTaskGroup(of: ResearchSource.self) { group in
             for row in rows {
@@ -365,31 +373,32 @@ final class LocalResearchService: Sendable {
     }
 
     func search(query: String, limit: Int = 6) async throws -> [ResearchSource] {
-        try await searchWithProvider(query: query, limit: limit).sources
+        try await searchWithMetadata(query: query, limit: limit).sources
     }
 
-    private func searchWithProvider(query: String, limit: Int) async throws -> ResearchGatherResult {
+    func searchWithMetadata(query: String, limit: Int = 6, admission: ResearchHTTPAdmission? = nil) async throws -> ResearchGatherResult {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.count <= 500 else { throw LocalResearchError.invalidQuery }
         if let key = searchAPIKey(), !key.isEmpty {
             do {
-                let rows = try await braveSearch(query: value, limit: limit, key: key)
+                let rows = try await braveSearch(query: value, limit: limit, key: key, admission: admission)
                 if !rows.isEmpty { return .init(providerUsed: .brave, sources: rows) }
             }
             catch is CancellationError { throw CancellationError() }
+            catch let error as ResearchHTTPAdmissionError { throw error }
             catch { /* Fall back to the no-key provider below. */ }
         }
         try Task.checkCancellation()
-        return .init(providerUsed: .bingRSS, sources: try await bingRSSSearch(query: value, limit: limit))
+        return .init(providerUsed: .bingRSS, sources: try await bingRSSSearch(query: value, limit: limit, admission: admission))
     }
 
-    private func braveSearch(query: String, limit: Int, key: String) async throws -> [ResearchSource] {
+    private func braveSearch(query: String, limit: Int, key: String, admission: ResearchHTTPAdmission?) async throws -> [ResearchSource] {
         var components = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
         components.queryItems = [.init(name: "q", value: query), .init(name: "count", value: String(max(1, min(limit, 10))))]
         var request = URLRequest(url: components.url!); request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(key, forHTTPHeaderField: "X-Subscription-Token")
-        let response = try await searchFetcher.data(for: request)
+        let response = try await admittedData(for: request, kind: .search(.brave), fetcher: admission == nil ? searchFetcher : accountedSearchFetcher, admission: admission)
         let data = response.data
         guard response.statusCode == 200 else { throw LocalResearchError.searchFailed(response.statusCode) }
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -402,13 +411,13 @@ final class LocalResearchService: Sendable {
         return rows
     }
 
-    private func bingRSSSearch(query: String, limit: Int) async throws -> [ResearchSource] {
+    private func bingRSSSearch(query: String, limit: Int, admission: ResearchHTTPAdmission?) async throws -> [ResearchSource] {
         var components = URLComponents(string: "https://www.bing.com/search")!
         components.queryItems = [.init(name: "q", value: query), .init(name: "format", value: "rss"), .init(name: "count", value: String(max(1, min(limit, 10)))), .init(name: "setlang", value: "zh-Hans")]
         var request = URLRequest(url: components.url!); request.timeoutInterval = 20
         request.setValue("application/rss+xml, application/xml;q=0.9", forHTTPHeaderField: "Accept")
         request.setValue("Mozilla/5.0 (iPhone; DeepSeekPersonal/1.0)", forHTTPHeaderField: "User-Agent")
-        let response = try await searchFetcher.data(for: request)
+        let response = try await admittedData(for: request, kind: .search(.bingRSS), fetcher: admission == nil ? searchFetcher : accountedSearchFetcher, admission: admission)
         let data = response.data
         guard response.statusCode == 200 else { throw LocalResearchError.searchFailed(response.statusCode) }
         let rows = Self.parseBingRSS(data).prefix(limit).compactMap { item -> ResearchSource? in
@@ -419,14 +428,14 @@ final class LocalResearchService: Sendable {
         return Array(rows)
     }
 
-    func fetch(_ source: ResearchSource) async throws -> ResearchSource {
+    func fetch(_ source: ResearchSource, admission: ResearchHTTPAdmission? = nil) async throws -> ResearchSource {
         var currentURL = try await urlPolicy.validate(source.url)
         for redirectCount in 0...Self.maximumRedirects {
             try Task.checkCancellation()
             var request = URLRequest(url: currentURL); request.timeoutInterval = 25
             request.setValue("Mozilla/5.0 (iPhone; DeepSeekPersonal/1.0)", forHTTPHeaderField: "User-Agent")
             request.setValue("text/html,text/plain,application/json,application/xml;q=0.9", forHTTPHeaderField: "Accept")
-            let response = try await pageFetcher.data(for: request)
+            let response = try await admittedData(for: request, kind: .page, fetcher: pageFetcher, admission: admission)
             try Task.checkCancellation()
             if Self.isRedirect(response.statusCode) {
                 guard redirectCount < Self.maximumRedirects,
@@ -456,6 +465,20 @@ final class LocalResearchService: Sendable {
             )
         }
         throw LocalResearchError.tooManyRedirects
+    }
+
+    private func admittedData(for request: URLRequest, kind: ResearchHTTPAdmissionKind,
+                              fetcher: any ResearchHTTPFetching, admission: ResearchHTTPAdmission?) async throws -> ResearchHTTPResponse {
+        try Task.checkCancellation()
+        if let admission {
+            do { try await admission(kind) }
+            catch is CancellationError { throw CancellationError() }
+            catch { throw ResearchHTTPAdmissionError(cause: error) }
+        }
+        try Task.checkCancellation()
+        let response = try await fetcher.data(for: request)
+        try Task.checkCancellation()
+        return response
     }
 
     static func evidencePrompt(

@@ -8,7 +8,7 @@ final class ResearchRunTests: XCTestCase {
     private func budget(ceiling: Int = 3, wall: TimeInterval = 100) throws -> ResearchRun.Budget {
         try .init(rounds: ceiling, queries: ceiling, sources: ceiling, fetches: ceiling,
                   evidenceCharacters: ceiling, synthesisTokens: ceiling, wallSeconds: wall,
-                  planningAttempts: ceiling, planningTokens: ceiling)
+                  planningAttempts: ceiling, planningTokens: ceiling, searchRequests: ceiling)
     }
 
     private func makeRun(ceiling: Int = 3, wall: TimeInterval = 100) throws -> ResearchRun {
@@ -147,7 +147,7 @@ final class ResearchRunTests: XCTestCase {
                     _ = try ResearchRun.Budget(rounds: limits[.rounds]!, queries: limits[.queries]!, sources: limits[.sources]!,
                         fetches: limits[.fetches]!, evidenceCharacters: limits[.evidenceCharacters]!,
                         synthesisTokens: limits[.synthesisTokens]!, wallSeconds: 100,
-                        planningAttempts: limits[.planningAttempts]!, planningTokens: limits[.planningTokens]!)
+                        planningAttempts: limits[.planningAttempts]!, planningTokens: limits[.planningTokens]!, searchRequests: limits[.searchRequests]!)
                 }
             }
         }
@@ -184,7 +184,7 @@ final class ResearchRunTests: XCTestCase {
     func testCheckpointRoundTripPreservesIdentityUsageAndOriginalDeadline() throws {
         var original = try makeRun(wall: 10)
         try original.transition(to: .planning, at: start.addingTimeInterval(1))
-        try original.reserve([.queries: 2, .fetches: 1, .planningAttempts: 1, .planningTokens: 3], at: start.addingTimeInterval(2))
+        try original.reserve([.queries: 2, .fetches: 1, .planningAttempts: 1, .planningTokens: 3, .searchRequests: 2], at: start.addingTimeInterval(2))
         var restored = try JSONDecoder().decode(ResearchRun.self, from: JSONEncoder().encode(original))
         XCTAssertEqual(restored, original)
         assertError(.wallTimeExceeded) { try restored.reserve([.queries: 1], at: start.addingTimeInterval(10)) }
@@ -206,7 +206,7 @@ final class ResearchRunTests: XCTestCase {
     func testCheckpointDecoderRejectsCorruptionAndFutureVersions() throws {
         let value = try makeRun()
         let mutations: [(inout [String: Any]) -> Void] = [
-            { $0["version"] = 3 }, { $0["version"] = 1 }, { $0["version"] = 0 }, { $0["query"] = " " },
+            { $0["version"] = 4 }, { $0["version"] = 1 }, { $0["version"] = 2 }, { $0["version"] = 0 }, { $0["query"] = " " },
             { $0["id"] = "invalid UUID" }, { $0.removeValue(forKey: "conversationID") },
             { $0["phase"] = "unknownPhase" }, { $0["phase"] = "failed" },
             { $0["failure"] = "internalError" },
@@ -215,9 +215,9 @@ final class ResearchRunTests: XCTestCase {
             { $0["updatedAt"] = 999 }, { $0["updatedAt"] = 1_100 },
             { $0["usage"] = [] },
             { $0["usage"] = ["rounds", 0, "queries", 0, "sources", 0, "fetches", 0, "evidenceCharacters", 0] },
-            { $0["usage"] = ["rounds", 0, "queries", 0, "sources", 0, "fetches", 0, "evidenceCharacters", 0, "synthesisTokens", 0, "planningAttempts", 0, "planningTokens", 0, "unexpected", 0] },
-            { $0["usage"] = ["rounds", -1, "queries", 0, "sources", 0, "fetches", 0, "evidenceCharacters", 0, "synthesisTokens", 0, "planningAttempts", 0, "planningTokens", 0] },
-            { $0["usage"] = ["rounds", 4, "queries", 0, "sources", 0, "fetches", 0, "evidenceCharacters", 0, "synthesisTokens", 0, "planningAttempts", 0, "planningTokens", 0] },
+            { $0["usage"] = ["rounds", 0, "queries", 0, "sources", 0, "fetches", 0, "evidenceCharacters", 0, "synthesisTokens", 0, "planningAttempts", 0, "planningTokens", 0, "searchRequests", 0, "unexpected", 0] },
+            { $0["usage"] = ["rounds", -1, "queries", 0, "sources", 0, "fetches", 0, "evidenceCharacters", 0, "synthesisTokens", 0, "planningAttempts", 0, "planningTokens", 0, "searchRequests", 0] },
+            { $0["usage"] = ["rounds", 4, "queries", 0, "sources", 0, "fetches", 0, "evidenceCharacters", 0, "synthesisTokens", 0, "planningAttempts", 0, "planningTokens", 0, "searchRequests", 0] },
             { json in
                 var config = json["budget"] as! [String: Any]
                 config["wallSeconds"] = 0
@@ -235,7 +235,7 @@ final class ResearchRunTests: XCTestCase {
             },
             { json in
                 var config = json["budget"] as! [String: Any]
-                config["limits"] = ["rounds", 3, "queries", 3, "sources", 3, "fetches", 3, "evidenceCharacters", 3, "synthesisTokens", 3, "planningAttempts", 3, "planningTokens", 3, "unexpected", 3]
+                config["limits"] = ["rounds", 3, "queries", 3, "sources", 3, "fetches", 3, "evidenceCharacters", 3, "synthesisTokens", 3, "planningAttempts", 3, "planningTokens", 3, "searchRequests", 3, "unexpected", 3]
                 json["budget"] = config
             }
         ]
@@ -246,10 +246,13 @@ final class ResearchRunTests: XCTestCase {
         assertError(.unsupportedVersion(1)) {
             _ = try JSONDecoder().decode(ResearchRun.self, from: corrupted(value) { $0["version"] = 1 })
         }
-        assertError(.unsupportedVersion(3)) {
-            _ = try JSONDecoder().decode(ResearchRun.self, from: corrupted(value) { $0["version"] = 3 })
+        assertError(.unsupportedVersion(2)) {
+            _ = try JSONDecoder().decode(ResearchRun.self, from: corrupted(value) { $0["version"] = 2 })
         }
-        for resource in [ResearchRun.Resource.planningAttempts, .planningTokens] {
+        assertError(.unsupportedVersion(4)) {
+            _ = try JSONDecoder().decode(ResearchRun.self, from: corrupted(value) { $0["version"] = 4 })
+        }
+        for resource in [ResearchRun.Resource.planningAttempts, .planningTokens, .searchRequests] {
             for field in ["usage", "limits"] {
                 let data = try corrupted(value) { json in
                     var container = field == "usage" ? json : json["budget"] as! [String: Any]
@@ -260,6 +263,32 @@ final class ResearchRunTests: XCTestCase {
                     if field == "usage" { json = container } else { json["budget"] = container }
                 }
                 XCTAssertThrowsError(try JSONDecoder().decode(ResearchRun.self, from: data))
+            }
+        }
+    }
+
+    func testV3EveryResourceCheckpointCorruptionIsIsolated() throws {
+        let value = try makeRun()
+        XCTAssertEqual(ResearchRun.checkpointVersion, 3)
+        XCTAssertEqual(ResearchRun.Resource.allCases.count, 9)
+        for resource in ResearchRun.Resource.allCases {
+            for field in ["usage", "limits"] {
+                for invalid in [nil, -1, 4] as [Int?] {
+                    // A limit of 4 is valid, so only usage exercises the over-budget case.
+                    if field == "limits", invalid == 4 { continue }
+                    let data = try corrupted(value) { json in
+                        var container = field == "usage" ? json : json["budget"] as! [String: Any]
+                        var pairs = container[field] as! [Any]
+                        let index = pairs.firstIndex { ($0 as? String) == resource.rawValue }!
+                        if let invalid { pairs[index + 1] = invalid }
+                        else { pairs.removeSubrange(index...index + 1) }
+                        container[field] = pairs
+                        if field == "usage" { json = container } else { json["budget"] = container }
+                    }
+                    assertError(field == "usage" ? .invalidCheckpoint : .invalidBudget) {
+                        _ = try JSONDecoder().decode(ResearchRun.self, from: data)
+                    }
+                }
             }
         }
     }

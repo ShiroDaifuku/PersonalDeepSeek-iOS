@@ -26,6 +26,8 @@ DS-002B accepted: shared APIClient model-capable adapter with explicit output ca
 
 ## Known follow-ups
 
+DS-003A accounted shared collection is in progress in D:/daifuku/.worktrees/ds-003a (codex/deepsearch-shared-collection). Design: one existing coordinator/run owner, per-request admission, checkpoint v3 searchRequests, noRedirect accounted search and bounded transient source/query associations. Executable acceptance is pending. See tasks/active/DS-003A-accounted-collection.md.
+
 - Next: DS-003 shared collection/evidence (tasks/active/DS-003-shared-collection-evidence.md). Multi-query search/fetch accounting, evidence/gaps, synthesis mapping, durable store, resume execution and Chat integration remain future work. Model planner quality is not established by protocol fixtures.
 - Historical Memory five-trial evaluator computes each pass but does not assert every pass; saved evidence records five successes. Correct separately without altering production semantics.
 - Local DNS precheck does not pin connection IP; page-byte ceiling applies after full download. These are static limitations, not reproduced exploits.

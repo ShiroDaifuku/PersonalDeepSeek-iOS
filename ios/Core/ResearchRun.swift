@@ -2,7 +2,7 @@ import Foundation
 
 /// Foundation-only lifecycle metadata. It deliberately contains no evidence, model output or memory writes.
 struct ResearchRun: Codable, Equatable, Sendable {
-    static let checkpointVersion = 2
+    static let checkpointVersion = 3
 
     enum Phase: String, Codable, Sendable, CaseIterable {
         case queued, planning, collecting, evaluating, synthesizing, completed, cancelled, failed
@@ -10,7 +10,7 @@ struct ResearchRun: Codable, Equatable, Sendable {
     }
 
     enum Resource: String, Codable, Sendable, CaseIterable {
-        case rounds, queries, sources, fetches, evidenceCharacters, synthesisTokens, planningAttempts, planningTokens
+        case rounds, queries, sources, fetches, evidenceCharacters, synthesisTokens, planningAttempts, planningTokens, searchRequests
     }
 
     enum Failure: String, Codable, Sendable {
@@ -29,10 +29,10 @@ struct ResearchRun: Codable, Equatable, Sendable {
 
         init(rounds: Int, queries: Int, sources: Int, fetches: Int,
              evidenceCharacters: Int, synthesisTokens: Int, wallSeconds: TimeInterval,
-             planningAttempts: Int = 3, planningTokens: Int = 12_288) throws {
+             planningAttempts: Int = 3, planningTokens: Int = 12_288, searchRequests: Int = 24) throws {
             limits = [.rounds: rounds, .queries: queries, .sources: sources, .fetches: fetches,
                       .evidenceCharacters: evidenceCharacters, .synthesisTokens: synthesisTokens,
-                      .planningAttempts: planningAttempts, .planningTokens: planningTokens]
+                      .planningAttempts: planningAttempts, .planningTokens: planningTokens, .searchRequests: searchRequests]
             self.wallSeconds = wallSeconds
             try validate()
         }
