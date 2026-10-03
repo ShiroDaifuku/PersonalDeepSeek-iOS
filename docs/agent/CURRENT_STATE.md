@@ -14,9 +14,13 @@ Ordinary AgentRunner native tools, bounded multi-round protocol, reasoning re-en
 
 The prior integration report records 230 ordinary XCTest tests (16 skipped, zero failures), two migration tests, one real Bing RSS Research E2E, and seven Cloudflare tests. This is historical component/simulator evidence, not device UI or Brave validation. The takeover audit did not rerun these tests or independently query remote CI.
 
-## Active increment
+## Completed increment
 
-DS-001 ResearchRun Foundation: independent state, cumulative budgets, cancellation/failure, versioned validated checkpoints and deterministic tests. No connection to Chat, network, API, Memory, tools or SwiftData. See tasks/active/DS-001-research-run-foundation.md.
+DS-001 ResearchRun Foundation accepted: independent state, cumulative budgets, cancellation/failure, validated versioned checkpoints and ten deterministic tests. No connection to Chat, network, API, Memory, tools or SwiftData. See tasks/completed/DS-001-research-run-foundation.md.
+
+Source ff0e3617268d27072cbe779ba2141137a3906e53 passed actual Simulator CI run 37119696346: build, 240 ordinary tests (16 skipped, zero failures), ResearchRun 10/10, selected generated-store migration 1/1 and local provider/retrieval evaluations 1/1 each. Independent review accepted source and the test-only repair. First run 37118022406 failed compilation due to a fixture helper named run shadowed by XCTestCase.run; it remains failed and is documented in docs/evaluations/ds-001/VALIDATION.md. Assertions and production model were unchanged by repair.
+
+DS-002 planning is prepared but not implemented. DS-002A pure plan/fixture coordination precedes DS-002B model adapter output/token/attempt/deadline accounting. See tasks/active/DS-002-research-planning.md. Current Chat Research remains single-pass.
 
 ## Known follow-ups
 

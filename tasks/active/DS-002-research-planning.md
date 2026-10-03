@@ -1,0 +1,19 @@
+# DS-002 Bounded Research Planning (planned)
+
+- Goal: typed bounded question decomposition and multi-query plan before iterative evidence collection.
+- Dependency: DS-001 accepted and integrated; preserve canonical branch lineage.
+- Status: planned, not implemented or connected to Chat.
+- Branch/worktree: create a dedicated task branch/worktree from the updated canonical baseline when implementation starts.
+- Owner: architecture agent defines validated plan contract; implementation agent implements within its worktree; independent reviewer and test agent verify.
+- Architecture boundary: ResearchRun owns lifecycle and budgets. Shared APIClient/LocalResearchService remain transport/search owners; no new native-tool runtime.
+- Split: DS-002A implements only pure plan contracts, validation and deterministic coordination. DS-002B implements a shared APIClient model adapter after output/attempt/token/deadline accounting is defined. Each increment gets its own branch/worktree and review.
+- DS-002A scope: ResearchPlan/subquestion/query IDs, untrusted PlannerDraft, planner protocol, deterministic fixture planner, bounded validation and explicit reservations. Host allocates run binding, IDs, limits and permissions; model drafts cannot set them.
+- Validation: bound draft bytes, subquestion count/text and query count; normalize whitespace, reject disallowed control characters, enforce 500 Swift Character query maximum, globally deduplicate queries while preserving many-to-many subquestion associations; reject empty questions/queries and dangling associations.
+- Accounting: reserve a round before planning; query reservation occurs immediately before logical search execution, not when query text is generated. Failures/cancellation do not refund reservations. Async work requires cancellation/deadline checks before/after calls and an actual deadline cancellation mechanism; reserve alone is not a timeout.
+- DS-002B prerequisite: current APIClient has no max_tokens field and may retry HTTP; ResearchRun has synthesisTokens but no planning-token dimension. Define maximum model output and per-attempt/token accounting, and checkpoint-version compatibility if resources change, before live model calls. Fixture plan correctness does not prove model cost control or planning quality.
+- Search adapter follow-up: LocalResearchService.gatherWithMetadata hides fetch attempts. Exact fetch accounting will require composition/hooks in the shared service rather than a second fetch stack. Logical query limits are distinct from Brave/Bing fallback HTTP attempt counts.
+- Forbidden scope: Memory/Profile updates, mutation tools, new search provider, durable store migration, resume/background/UI changes, production deployment or packaging.
+- Acceptance: subquestions and normalized queries are bounded and nonempty; duplicate queries do not consume repeated execution (verified with a fake search executor in DS-002A); each query meets LocalResearchService's existing length constraint; plan IDs remain stable; planner output cannot modify host-owned permissions/context configuration; reservations precede work and do not reset across checkpoints. Draft text can affect planning/query semantics; these structural tests do not prove semantic injection immunity or answer quality.
+- Tests: deterministic multi-question fixtures, duplicate/empty/oversized/invalid plans, cancellation/deadline, exhausted query/round budgets and invalid planner output. Test adapter request/context boundaries separately from real provider quality.
+- Result: no code yet. ResearchRun reservation is explicit; planner integration must not infer enforcement from phase transitions alone.
+- Follow-ups: evidence/source ledger and bounded gap-driven refinement; real model/provider evaluation only after fixture correctness.

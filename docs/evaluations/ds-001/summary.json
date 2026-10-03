@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-03",
+  "timezone": "Asia/Hong_Kong",
+  "status": "PASS",
+  "source": "ff0e3617268d27072cbe779ba2141137a3906e53",
+  "workflow": "ios-memory-validation.yml",
+  "runId": 37119696346,
+  "runURL": "https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/37119696346",
+  "inputs": {
+    "research_followup": false,
+    "integration_acceptance": false
+  },
+  "ordinary": {
+    "total": 240,
+    "failed": 0,
+    "passed": 224,
+    "skipped": 16
+  },
+  "researchRun": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0,
+    "cases": [
+      "testAllResourceCeilingsAndAtomicMultidimensionalReservation",
+      "testCheckpointDecoderRejectsCorruptionAndFutureVersions",
+      "testCheckpointRoundTripPreservesIdentityUsageAndOriginalDeadline",
+      "testEveryTerminalOutcomeIsMonotonic",
+      "testExhaustiveTransitionMatrix",
+      "testInvalidReservationsAndOverflowAreAtomic",
+      "testInvalidTransitionsAreAtomic",
+      "testLegalLifecycleAndRefinementTransitions",
+      "testRejectsEachInvalidBudgetDimensionAndQuery",
+      "testWallDeadlineAndBackwardsClockLeaveStateUntouched"
+    ]
+  },
+  "migration": {
+    "fixture": "generated pre-Step-3 SwiftData store",
+    "total": 1,
+    "passed": 1,
+    "failed": 0
+  },
+  "embeddingEvaluation": {
+    "total": 1,
+    "passed": 1,
+    "semanticQualityGuaranteed": false,
+    "assetDownloadRequested": false
+  },
+  "retrievalEvaluation": {
+    "total": 1,
+    "passed": 1
+  },
+  "initialFailure": {
+    "outcome": "build failed; tests not executed",
+    "source": "da9c35c6d178963141066125f3f5754e012be860",
+    "runId": 37118022406,
+    "classification": "test helper collision with XCTestCase.run",
+    "repair": "rename helper and calls to makeRun; no assertion or production change"
+  },
+  "limitations": [
+    "No planner/network/Chat/persistent-store/resume integration",
+    "No real provider/model evaluation or physical-device validation in DS-001",
+    "Explicit reservations require future orchestrator enforcement",
+    "Checkpoint validation is structural, not authenticated history or expected-context binding"
+  ],
+  "ipaGenerated": false,
+  "productionDeployed": false
+}
