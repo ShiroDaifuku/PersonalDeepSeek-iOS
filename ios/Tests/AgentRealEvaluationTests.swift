@@ -10,6 +10,7 @@ private struct NativeEvaluationRecord: Codable {
     let error: String?
     let physicalExecutions: Int
     let metrics: AgentRunMetrics?
+    var thinkingReentryObserved: Bool? = nil
 }
 
 @MainActor final class AgentRealEvaluationTests: XCTestCase {
@@ -118,7 +119,9 @@ private struct NativeEvaluationRecord: Codable {
             case "F-identical-repeat-controlled": passed = physical == 1 && metrics?.tools.contains(where: { $0.status == "repeat_blocked" }) == true && answer.contains("4827")
             default: passed = false
             }
-            return .init(caseID: id, passed: passed, response: answer, error: nil, physicalExecutions: physical, metrics: metrics)
+            return .init(caseID: id, passed: passed, response: answer, error: nil,
+                physicalExecutions: physical, metrics: metrics,
+                thinkingReentryObserved: thinkingReentry)
         } catch {
             return .init(caseID: id, passed: false, response: "", error: error.localizedDescription, physicalExecutions: 0, metrics: nil)
         }

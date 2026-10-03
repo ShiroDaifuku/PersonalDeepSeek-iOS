@@ -51,4 +51,18 @@ final class IntegrationRoutingTests: XCTestCase {
         ], model: "deepseek-v4-pro", thinking: false, reasoningEffort: "none",
             toolNames: [], toolChoice: .auto)))
     }
+
+    func testOversizedRequestBodyIsRejectedBeforeTransport() {
+        let oversized = String(repeating: "A", count: APIClient.maximumRequestBodyBytes)
+        XCTAssertThrowsError(try APIClient.requestBody(.init(messages: [
+            .init(role: "user", content: oversized)
+        ], model: "deepseek-flash", thinking: false, reasoningEffort: "none",
+            toolNames: [], toolChoice: .auto))) { error in
+            guard let clientError = error as? ClientError,
+                  case .requestBodyTooLarge(let size) = clientError else {
+                return XCTFail("Expected requestBodyTooLarge, got \(error)")
+            }
+            XCTAssertGreaterThan(size, APIClient.maximumRequestBodyBytes)
+        }
+    }
 }
