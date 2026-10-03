@@ -3,8 +3,8 @@
 Each increment uses a dedicated branch/worktree, independent review and tests before integration. No automatic packaging or production deployment.
 
 1. DS-001 Foundation: immutable identity, validated state transitions, cumulative budgets, cancellation/failure, validated versioned checkpoints and offline tests. No Chat behavior change.
-2. DS-002 Planning/multiple queries: DS-002A pure plan contracts/fixture coordination accepted with full Simulator regression and generated-store migration. DS-002B shared APIClient model adapter is next: define model output/token/attempt/deadline accounting and version compatibility before live calls. Reuse LocalResearchService. See tasks/active/DS-002-research-planning.md. DS-002 is not yet complete and Chat remains single-pass.
-3. Evidence/gaps: stable source/evidence IDs, URL deduplication, coverage/contradiction checks, bounded refinement; account for all work against run budget.
+2. DS-002 Planning/multiple queries: DS-002A contracts and DS-002B shared model adapter accepted with full Simulator regression and generated-store migration. Checkpoint v2, cumulative output/attempt reservations, explicit output cap, one HTTP attempt and strict bounded shared transport are verified with fixtures. See tasks/completed/DS-002-research-planning.md. Live quality remains unverified and Chat remains single-pass.
+3. DS-003 shared collection/evidence: next define exact logical query, provider/fallback HTTP and page fetch accounting through LocalResearchService, then bounded stable source/evidence IDs and URL deduplication. See tasks/active/DS-003-shared-collection-evidence.md. Coverage/contradiction checks and bounded refinement follow independently.
 4. Claims/report: claim-evidence-citation validation, explicit gaps, bounded structured synthesis through shared API/SSE.
 5. Persistent lifecycle: separate research store, additive migration design/tests, checkpoint/relaunch/resume and bounded failure recovery without resetting budgets.
 6. Chat/evaluation: progress and cancel/resume UX, final-answer eligibility, images/context regression, deterministic E2E, live provider evaluation and device checks.

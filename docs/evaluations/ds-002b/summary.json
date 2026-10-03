@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-03",
+  "timezone": "Asia/Hong_Kong",
+  "status": "PASS",
+  "source": "4bd020f354d4464600de34a164c2d1b4bb8902e4",
+  "workflow": "ios-memory-validation.yml",
+  "runId": 37130582558,
+  "runURL": "https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/37130582558",
+  "inputs": {
+    "integration_acceptance": false,
+    "research_followup": false,
+    "research_contract_validation": true
+  },
+  "ordinary": {
+    "total": 264,
+    "passed": 248,
+    "skipped": 16,
+    "failed": 0
+  },
+  "modelPlanner": {
+    "total": 10,
+    "passed": 10,
+    "skipped": 0,
+    "failed": 0,
+    "cases": [
+      "testActualTransportCancellationAndOriginalDeadlineRetainReservation",
+      "testAtomicPlanningReservationsAndFailureCheckpointRemainCharged",
+      "testContentByteCapAndInputCapBeforeProvider",
+      "testExactRequestControlsAndDeduplicatedPlan",
+      "testLegacyRequestDefaultsAndInvalidOptions",
+      "testPlannerHTTPFailuresHaveOneAttemptAndLegacyHasThree",
+      "testRawByteLimitCountsCommentsMalformedAndUnterminatedLines",
+      "testRealTransportSuccessAndStrictRawUsage",
+      "testRestoredQueuedCheckpointCannotResetPlanningBudget",
+      "testStrictCompletionUsageAndInvalidOutput"
+    ]
+  },
+  "researchPlanning": {
+    "total": 14,
+    "passed": 14,
+    "skipped": 0,
+    "failed": 0
+  },
+  "researchRun": {
+    "total": 10,
+    "passed": 10,
+    "skipped": 0,
+    "failed": 0,
+    "checkpointVersion": 2
+  },
+  "migration": {
+    "fixture": "generated pre-Step-3 SwiftData store",
+    "total": 1,
+    "passed": 1,
+    "failed": 0
+  },
+  "actualTransportCancellationAndDeadline": {
+    "status": "PASS",
+    "seconds": 0.117,
+    "stopLoadingObservedBeforeForcedCleanup": true,
+    "originalDeadline": true,
+    "reservationsRetained": true
+  },
+  "optionalProviderRetrievalBenchmarks": "skipped by contract mode",
+  "liveModelEvaluation": false,
+  "firstRunPassed": true,
+  "failedRuns": [],
+  "limitations": [
+    "No Chat or real search integration",
+    "Protocol fixtures do not establish live planning quality, semantic injection immunity, provider cap compliance or monetary billing guarantees",
+    "PlanningTokens is conservative output allocation; no refunds",
+    "Checkpoint v1/future versions rejected; no persisted research migration/resume",
+    "Dependencies must cooperate with cancellation"
+  ],
+  "ipaGenerated": false,
+  "productionDeployed": false
+}

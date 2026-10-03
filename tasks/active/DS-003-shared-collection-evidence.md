@@ -1,0 +1,11 @@
+# DS-003 shared collection and evidence (planned)
+
+- Dependency: accepted DS-001/DS-002 component stages; start from updated feature/tool-research-integration in a dedicated branch/worktree.
+- Goal: execute validated multi-query plans through shared LocalResearchService with accountable attempted work and bounded source/evidence identity.
+- Status: planned; no implementation, real search, live model evaluation or Chat acceptance claimed.
+- First design gate: distinguish logical query reservations from provider/fallback HTTP attempts and page fetch attempts. Existing gatherWithMetadata hides fetch attempts; define shared service composition/hooks and atomic host reservations before calls, including retries/fallbacks, instead of another fetch stack. Review resource/checkpoint compatibility if dimensions must change.
+- Collection contract: preserve accepted plan/run binding, stable source/evidence IDs and query associations; bounded URL deduplication and source/text counts; failed/cancelled attempts remain charged. Preserve original run deadline and cancellation; late results cannot revive terminal runs.
+- Evidence boundary: web/model text is untrusted; no raw evidence or intermediate claim enters Memory/Profile. Reuse shared URL/DNS/redirect validation; separately track existing DNS late-success/IP-pinning and post-download byte-limit limitations rather than claiming they are fixed.
+- Split into independently reviewed increments after architecture review: shared accounting/fixture collection, bounded evidence ledger, then coverage/gaps and iterative refinement. Live provider/quality evaluation and Chat wiring are later gates.
+- Tests: offline injected search/fetch fixtures; reservations observed before each attempt; fallback/failure/cancel/deadline accounting; duplicate URLs across queries; source/byte/text bounds; stable associations and terminal monotonicity; full regression/migration as applicable.
+- Forbidden: new provider/runtime/parser, implicit paid model calls, Memory/Profile mutation, persistent store/background/resume/UI, IPA/main merge/deploy.
