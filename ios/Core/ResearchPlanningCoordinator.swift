@@ -43,6 +43,7 @@ actor ResearchPlanningCoordinator {
     private var operationToken: UUID?
     private var collected: [ResearchCollectedSource] = []
     private var collectionFinished = false
+    private var evidenceLedger: ResearchEvidenceLedger?
 
     init(run: ResearchRun, limits: ResearchPlanningLimits, planner: any ResearchPlanning,
          clock: ResearchPlanningClock = .continuous) {
@@ -117,6 +118,33 @@ actor ResearchPlanningCoordinator {
 
     func collectionSnapshot() -> ResearchCollectionSnapshot {
         .init(runID: run.id, conversationID: run.conversationID, sources: collected)
+    }
+
+    /// Build only from this owner's accepted plan and charged collection. No transferred
+    /// ledger can be adopted and no copied source text receives a second reservation.
+    func buildEvidenceLedger(limits: ResearchEvidenceLimits) throws -> ResearchEvidenceLedger {
+        guard !busy else { throw ResearchPlanningError.operationInProgress }
+        guard collectionFinished, run.phase == .evaluating, let plan = acceptedPlan else {
+            throw ResearchPlanningError.invalidPhase
+        }
+        do { try checkActive() }
+        catch { terminalize(error); throw error }
+        if let existing = evidenceLedger {
+            guard existing.limits == limits else { throw ResearchEvidenceLedger.ValidationError.invalidBinding }
+            return existing
+        }
+        do {
+            let ledger = try ResearchEvidenceLedger.build(plan: plan, collection: collectionSnapshot(), limits: limits)
+            try checkActive()
+            if ledger.metadataCharacterCost > 0 {
+                try run.reserve([.evidenceCharacters: ledger.metadataCharacterCost], at: clock.now())
+            }
+            evidenceLedger = ledger
+            return ledger
+        } catch {
+            terminalize(error)
+            throw error
+        }
     }
 
     func collect(using service: LocalResearchService, limits: ResearchCollectionLimits) async throws -> ResearchCollectionSnapshot {
@@ -242,7 +270,7 @@ actor ResearchPlanningCoordinator {
         case ResearchRun.ValidationError.wallTimeExceeded,
              ResearchRun.ValidationError.budgetExceeded(_), ResearchPlanningError.deadlineExceeded:
             reason = .budgetExhausted
-        case is ResearchPlan.ValidationError, is DecodingError, is ResearchPlannerError:
+        case is ResearchPlan.ValidationError, is ResearchEvidenceLedger.ValidationError, is DecodingError, is ResearchPlannerError:
             reason = .invalidResponse
         case ResearchPlanningError.providerUnavailable, is LocalResearchError:
             reason = .providerUnavailable

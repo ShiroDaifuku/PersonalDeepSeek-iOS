@@ -1,8 +1,11 @@
-# DS-003B bounded evidence ledger (planned)
+# DS-003B bounded evidence ledger
 
 - Dependency: accepted DS-003A accounted collection; start from updated feature/tool-research-integration in a dedicated branch/worktree.
 - Goal: define bounded untrusted evidence entries and source/query/subquestion associations for later coverage/gap evaluation.
-- Status: planned; no ledger implementation, live evaluation, final-report or Chat acceptance claimed.
+- Status: implementation; architecture projection/accounting gate accepted on 2026-10-04. No CI, live evaluation, final-report or Chat acceptance claimed yet.
+- Baseline: ee290e1505c3061fccadd2151041b71614e3139d; branch codex/deepsearch-evidence-ledger; worktree D:/daifuku/.worktrees/ds-003b.
+- Owners: Lead coordinates integration/docs/workflow; ds003b_implementer owns Core/Tests; ds003b_architecture and ds003b_reviewer review independently; validation audits actual Simulator logs.
+- Accepted design: immutable versioned deterministic projection of the accepted plan and finished collection; Data-boundary decode requires expected host context and limits. First-observation provider is attached only to the first observed query; redirect aliases retain distinct requested-key identities. Reuse collected text charges, reserve novel retained metadata through the existing coordinator, cache one ledger with fixed limits. No resource or checkpoint change (v3).
 - Architecture gate: define run/conversation binding, stable evidence/source identity, fetched-page versus search-snippet provenance, text segmentation/truncation and byte/character/count limits. Different redirect aliases and repeated provider/query observations need explicit provenance rules; do not infer all associations share the first provider.
 - Validation: reject empty/oversized/dangling/duplicate/cross-run references and future schema; retain host-owned IDs/limits; decoded/transferred evidence is untrusted and requires expected-context validation. Serialization is not authenticated history or durable storage.
 - Accounting gate: reuse existing retained collection charges without silently refunding/resetting or double-charging copied text. Reserve any new retained evidence/metadata work explicitly; review checkpoint compatibility before resource changes. Sole ResearchRun owner and original deadline remain authoritative.
