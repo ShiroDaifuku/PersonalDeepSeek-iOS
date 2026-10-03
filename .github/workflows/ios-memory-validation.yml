@@ -111,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           project_file="PersonalDeepSeek.xcodeproj/project.pbxproj"
-          for source in ResearchRun.swift ResearchPlanning.swift ResearchPlanningCoordinator.swift ResearchRunTests.swift ResearchPlanningTests.swift; do
+          for source in ResearchRun.swift ResearchPlanning.swift ResearchPlanningCoordinator.swift APIClientResearchPlanner.swift ResearchRunTests.swift ResearchPlanningTests.swift APIClientResearchPlannerTests.swift; do
             grep -q "$source" "$project_file"
           done
 
@@ -148,6 +148,7 @@ jobs:
           set -euo pipefail
           grep -q "Test Suite 'ResearchRunTests' passed" "$RUNNER_TEMP/memory-tests.log"
           grep -q "Test Suite 'ResearchPlanningTests' passed" "$RUNNER_TEMP/memory-tests.log"
+          grep -q "Test Suite 'APIClientResearchPlannerTests' passed" "$RUNNER_TEMP/memory-tests.log"
 
       - name: Prepare evaluation test environment
         working-directory: ios

@@ -3,7 +3,7 @@ import XCTest
 @testable import PersonalDeepSeek
 
 /// Cancellable continuations make deadlines deterministic without real sleeps/network.
-private final class PlanningTestClock: @unchecked Sendable {
+final class PlanningTestClock: @unchecked Sendable {
     private let lock = NSLock()
     private var time: Date
     private var sleepers: [UUID: (Date, CheckedContinuation<Void, Error>)] = [:]

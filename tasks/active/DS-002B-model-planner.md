@@ -1,0 +1,16 @@
+# DS-002B bounded shared model planner
+
+- Dependency: DS-002A accepted at 36caf954e55f424e75855dc791625089e1a5f5b1.
+- Branch/worktree: codex/deepsearch-model-planner, D:/daifuku/.worktrees/ds-002b.
+- Goal: real model-capable planning adapter through shared APIClient/SSEParser, with deterministic transport fixtures before live quality evaluation.
+- Roles: architecture agent defines request/accounting contract; one implementation agent owns Core/Tests; Lead owns docs/workflow; independent reviewer and test agent verify.
+- Scope: additive AgentModelRequest transport controls; APIClient optional output/attempt/raw-byte limits; APIClientResearchPlanner; ResearchPlanning coordinator reservations; ResearchRun checkpoint v2; deterministic tests and no-IPA Simulator validation.
+- Accounting: planningAttempts counts attempted model requests; planningTokens reserves the full configured output ceiling before invocation, atomically with the planning round. No refund on HTTP failure, invalid JSON/usage, cancellation or deadline. It is an output allocation, not actual usage or a monetary billing guarantee. Input UTF-8 bytes and raw response bytes have separate caps.
+- Compatibility: checkpoint v2 requires all eight resources and preserved counters. Explicitly reject v1/future versions; no synthesized history, budget reset or automatic migration. No persisted ResearchRun store exists yet. New initializer defaults preserve source call sites; they do not authorize decoding old checkpoints.
+- Transport: ordinary Chat defaults remain unchanged. Planner explicitly sets max_tokens, one HTTP attempt, disabled thinking and reasoning_effort none, no tools/images/history/Memory/Profile/evidence. Count raw bytes before line allocation using existing SSEParser; no second HTTP or SSE stack. Cancelled consumption must stop producer/URLSession work.
+- Response: bounded JSON draft only, valid stop plus DONE and usage; reject truncation, tools, reasoning, empty/invalid JSON, missing/invalid/inconsistent usage and content overflow. Host retains IDs, run/conversation binding and limits.
+- Tests: request body/default regression; pre-call atomic reservation and exhaustion; cumulative checkpoint usage; HTTP 429/500 attempt count; bounded unterminated/comment/malformed frames; valid chunked Unicode JSON; invalid output/usage; stalled transport cancellation and original deadline; full ordinary XCTest, suite discovery and generated old-store migration.
+- Forbidden: Chat/search/evidence/synthesis integration, Memory/Profile mutation, new provider/parser/dependency, persisted ResearchRun store, background/resume, live paid requests, IPA/main merge/deploy.
+- Status: implementation in progress; no executable validation accepted yet.
+- Official request references: https://api-docs.deepseek.com/api/create-chat-completion/ and https://api-docs.deepseek.com/guides/thinking_mode/. Current documentation specifies explicit max_tokens and reasoning_effort none to disable thinking. These requests are tested with fixtures; live provider behavior is not established by unit tests.
+- Later work: real planning quality evaluation and shared search/fetch accounting, evidence ledgers/gaps, structured synthesis, durable lifecycle and Chat integration.

@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 enum StreamDelta: Equatable, Sendable {
     case reasoning(String), content(String), usage(Int), done
@@ -72,5 +73,45 @@ struct SSEParser {
                 cacheHitTokens: usage["prompt_cache_hit_tokens"] as? Int ?? 0,
                 cacheMissTokens: usage["prompt_cache_miss_tokens"] as? Int ?? 0)))
         }
+    }
+    static func validateBoundedEventLine(_ line: String) throws {
+        guard line.hasPrefix("data:") else { return }
+        let raw = String(line.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw == "[DONE]" { return }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] else {
+            throw ClientError.invalidResearchResponse
+        }
+        if let value = object["choices"] {
+            guard let choices = value as? [[String: Any]], choices.count <= 1 else { throw ClientError.invalidResearchResponse }
+            if let choice = choices.first {
+                if let reason = choice["finish_reason"], !(reason is NSNull), !(reason is String) { throw ClientError.invalidResearchResponse }
+                if let value = choice["delta"] {
+                    guard let delta = value as? [String: Any] else { throw ClientError.invalidResearchResponse }
+                    if delta["tool_calls"] != nil || delta["reasoning_content"] != nil && !(delta["reasoning_content"] is NSNull) {
+                        throw ClientError.invalidResearchResponse
+                    }
+                    if let content = delta["content"], !(content is NSNull), !(content is String) { throw ClientError.invalidResearchResponse }
+                }
+            }
+        }
+        if let value = object["usage"], !(value is NSNull) {
+            guard let usage = value as? [String: Any] else { throw ClientError.invalidResearchResponse }
+            for key in ["prompt_tokens", "completion_tokens", "total_tokens"] {
+                try validateTokenNumber(usage[key])
+            }
+            for key in ["prompt_cache_hit_tokens", "prompt_cache_miss_tokens"] where usage[key] != nil {
+                try validateTokenNumber(usage[key])
+            }
+            if let details = usage["completion_tokens_details"], !(details is NSNull) {
+                guard let object = details as? [String: Any] else { throw ClientError.invalidResearchResponse }
+                if let reasoning = object["reasoning_tokens"] { try validateTokenNumber(reasoning) }
+            }
+        }
+    }
+
+    private static func validateTokenNumber(_ value: Any?) throws {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite, number.doubleValue >= 0,
+              number.stringValue == String(number.intValue) else { throw ClientError.invalidResearchResponse }
     }
 }

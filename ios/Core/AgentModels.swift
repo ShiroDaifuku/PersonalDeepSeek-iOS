@@ -231,6 +231,9 @@ struct AgentModelRequest: Sendable {
     let toolNames: [String]
     let toolChoice: NativeToolChoice
     var strict = false
+    var maxOutputTokens: Int? = nil
+    var maximumAttempts = 3
+    var responseByteLimit: Int? = nil
 }
 
 protocol AgentModelStreaming: Sendable {

@@ -5,6 +5,8 @@ enum ClientError: LocalizedError, Sendable {
     case modelDoesNotSupportImages(String)
     case tooManyImages(Int)
     case requestBodyTooLarge(Int)
+    case responseBodyTooLarge(Int)
+    case invalidResearchResponse
 
     var errorDescription: String? {
         switch self {
@@ -15,6 +17,8 @@ enum ClientError: LocalizedError, Sendable {
         case .modelDoesNotSupportImages(let model): "模型 \(model) 不支持图片输入，请切换到 deepseek-flash。"
         case .tooManyImages(let count): "一次最多发送 6 张图片，当前为 \(count) 张。"
         case .requestBodyTooLarge: "图片和文字的请求体超过 48 MiB，请减少附件后重试。"
+        case .responseBodyTooLarge: "研究规划响应超过字节上限。"
+        case .invalidResearchResponse: "研究规划响应格式无效。"
         }
     }
 }
@@ -55,6 +59,11 @@ final class APIClient: Sendable, AgentModelStreaming {
     }
 
     static func requestBody(_ input: AgentModelRequest) throws -> Data {
+        guard (1...3).contains(input.maximumAttempts),
+              input.maxOutputTokens.map({ (1...393_216).contains($0) }) ?? true,
+              input.responseByteLimit.map({ (1...1_048_576).contains($0) }) ?? true else {
+            throw ClientError.invalidConfiguration
+        }
         try AgentTranscriptValidator.validate(input.messages)
         let requestModel = DeepSeekModelCompatibility.requestModel(for: input.model)
         let imageCount = input.messages.reduce(0) { $0 + $1.imageDataURLs.count }
@@ -71,6 +80,7 @@ final class APIClient: Sendable, AgentModelStreaming {
             body["tools"] = try ToolRegistry.definitions(names: input.toolNames, strict: input.strict)
             body["tool_choice"] = input.toolChoice.wireValue
         }
+        if let maximum = input.maxOutputTokens { body["max_tokens"] = maximum }
         let data = try JSONSerialization.data(withJSONObject: body)
         guard data.count <= maximumRequestBodyBytes else { throw ClientError.requestBodyTooLarge(data.count) }
         return data
@@ -85,16 +95,51 @@ final class APIClient: Sendable, AgentModelStreaming {
                     let headers = ["Content-Type": "application/json", "X-Request-ID": UUID().uuidString, "Authorization": "Bearer \(key)"]
                     var request = URLRequest(url: endpoint); request.httpMethod = "POST"; headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
                     request.httpBody = try Self.requestBody(input); request.timeoutInterval = 610
-                    for attempt in 0..<3 {
+                    for attempt in 0..<input.maximumAttempts {
+                        try Task.checkCancellation()
                         let (bytes, response) = try await session.bytes(for: request)
+                        try Task.checkCancellation()
                         guard let http = response as? HTTPURLResponse else { throw ClientError.invalidConfiguration }
-                        if http.statusCode == 429 || (500...599).contains(http.statusCode), attempt < 2 {
+                        if http.statusCode == 429 || (500...599).contains(http.statusCode), attempt < input.maximumAttempts - 1 {
                             let delay = UInt64(Double(500 * (1 << attempt)) * Double.random(in: 0.75...1.25) * 1_000_000)
                             try await Task.sleep(nanoseconds: delay); continue
                         }
                         guard http.statusCode == 200 else { throw ClientError.badResponse(http.statusCode) }
                         var parser = SSEParser(); var emitted = false
-                        for try await line in bytes.lines {
+                        func emit(_ events: [StreamDelta]) throws -> Bool {
+                            for event in events {
+                                if case .content = event { emitted = true }
+                                if case .reasoning = event { emitted = true }
+                                if case .toolCall = event { emitted = true }
+                                if event == .done {
+                                    guard emitted else { throw ClientError.streamEnded }
+                                    continuation.yield(event); continuation.finish(); return true
+                                }
+                                continuation.yield(event)
+                            }
+                            return false
+                        }
+                        if let ceiling = input.responseByteLimit {
+                            var count = 0
+                            var lineData = Data()
+                            for try await byte in bytes {
+                                try Task.checkCancellation()
+                                guard count < ceiling else { throw ClientError.responseBodyTooLarge(ceiling) }
+                                count += 1
+                                if byte == 0x0A {
+                                    guard let line = String(data: lineData, encoding: .utf8) else { throw ClientError.invalidResearchResponse }
+                                    lineData.removeAll(keepingCapacity: true)
+                                    try SSEParser.validateBoundedEventLine(line)
+                                    if try emit(parser.appendEventLine(line)) { return }
+                                } else { lineData.append(byte) }
+                            }
+                            if !lineData.isEmpty {
+                                guard let line = String(data: lineData, encoding: .utf8) else { throw ClientError.invalidResearchResponse }
+                                try SSEParser.validateBoundedEventLine(line)
+                                if try emit(parser.appendEventLine(line)) { return }
+                            }
+                        } else {
+                          for try await line in bytes.lines {
                             try Task.checkCancellation()
                             for event in parser.appendEventLine(line) {
                                 if case .content = event { emitted = true }
@@ -106,6 +151,7 @@ final class APIClient: Sendable, AgentModelStreaming {
                                 }
                                 continuation.yield(event)
                             }
+                          }
                         }
                         try Task.checkCancellation()
                         for event in parser.finish() {
@@ -125,4 +171,5 @@ final class APIClient: Sendable, AgentModelStreaming {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
 }

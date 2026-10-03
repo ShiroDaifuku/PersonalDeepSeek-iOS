@@ -2,7 +2,7 @@ import Foundation
 
 /// Foundation-only lifecycle metadata. It deliberately contains no evidence, model output or memory writes.
 struct ResearchRun: Codable, Equatable, Sendable {
-    static let checkpointVersion = 1
+    static let checkpointVersion = 2
 
     enum Phase: String, Codable, Sendable, CaseIterable {
         case queued, planning, collecting, evaluating, synthesizing, completed, cancelled, failed
@@ -10,7 +10,7 @@ struct ResearchRun: Codable, Equatable, Sendable {
     }
 
     enum Resource: String, Codable, Sendable, CaseIterable {
-        case rounds, queries, sources, fetches, evidenceCharacters, synthesisTokens
+        case rounds, queries, sources, fetches, evidenceCharacters, synthesisTokens, planningAttempts, planningTokens
     }
 
     enum Failure: String, Codable, Sendable {
@@ -28,9 +28,11 @@ struct ResearchRun: Codable, Equatable, Sendable {
         let wallSeconds: TimeInterval
 
         init(rounds: Int, queries: Int, sources: Int, fetches: Int,
-             evidenceCharacters: Int, synthesisTokens: Int, wallSeconds: TimeInterval) throws {
+             evidenceCharacters: Int, synthesisTokens: Int, wallSeconds: TimeInterval,
+             planningAttempts: Int = 3, planningTokens: Int = 12_288) throws {
             limits = [.rounds: rounds, .queries: queries, .sources: sources, .fetches: fetches,
-                      .evidenceCharacters: evidenceCharacters, .synthesisTokens: synthesisTokens]
+                      .evidenceCharacters: evidenceCharacters, .synthesisTokens: synthesisTokens,
+                      .planningAttempts: planningAttempts, .planningTokens: planningTokens]
             self.wallSeconds = wallSeconds
             try validate()
         }
@@ -164,6 +166,7 @@ struct ResearchRun: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         version = try values.decode(Int.self, forKey: .version)
+        guard version == Self.checkpointVersion else { throw ValidationError.unsupportedVersion(version) }
         id = try values.decode(UUID.self, forKey: .id)
         conversationID = try values.decode(UUID.self, forKey: .conversationID)
         query = try values.decode(String.self, forKey: .query)

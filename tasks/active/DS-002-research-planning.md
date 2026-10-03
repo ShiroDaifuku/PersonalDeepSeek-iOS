@@ -2,7 +2,7 @@
 
 - Goal: typed bounded question decomposition and multi-query plan before iterative evidence collection.
 - Dependency: DS-001 accepted and integrated; preserve canonical branch lineage.
-- Status: DS-002A completed (tasks/completed/DS-002A-planning-contract.md); DS-002B planned. Neither is connected to Chat.
+- Status: DS-002A completed (tasks/completed/DS-002A-planning-contract.md); DS-002B in progress (tasks/active/DS-002B-model-planner.md). Neither is connected to Chat.
 - Branch/worktree: create a dedicated task branch/worktree from the updated canonical baseline when implementation starts.
 - Owner: architecture agent defines validated plan contract; implementation agent implements within its worktree; independent reviewer and test agent verify.
 - Architecture boundary: ResearchRun owns lifecycle and budgets. Shared APIClient/LocalResearchService remain transport/search owners; no new native-tool runtime.

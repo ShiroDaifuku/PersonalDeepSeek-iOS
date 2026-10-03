@@ -65,7 +65,10 @@ actor ResearchPlanningCoordinator {
         defer { busy = false; activeTask = nil }
         do {
             try Task.checkCancellation()
-            try run.reserve([.rounds: 1], at: clock.now())
+            var costs = planner.reservationCosts
+            guard costs[.rounds] == nil else { throw ResearchRun.ValidationError.invalidReservation }
+            costs[.rounds] = 1
+            try run.reserve(costs, at: clock.now())
             try run.transition(to: .planning, at: clock.now())
             let input = ResearchPlanningInput(runID: run.id, question: run.query, limits: limits)
             let planner = self.planner
@@ -152,7 +155,7 @@ actor ResearchPlanningCoordinator {
         case ResearchRun.ValidationError.wallTimeExceeded,
              ResearchRun.ValidationError.budgetExceeded(_), ResearchPlanningError.deadlineExceeded:
             reason = .budgetExhausted
-        case is ResearchPlan.ValidationError, is DecodingError:
+        case is ResearchPlan.ValidationError, is DecodingError, is ResearchPlannerError:
             reason = .invalidResponse
         case ResearchPlanningError.providerUnavailable:
             reason = .providerUnavailable

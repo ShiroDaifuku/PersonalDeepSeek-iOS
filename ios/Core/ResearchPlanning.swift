@@ -227,8 +227,13 @@ struct ResearchPlanningInput: Equatable, Sendable {
 }
 
 protocol ResearchPlanning: Sendable {
-    /// Dependencies must cooperate with task cancellation. No provider is connected in DS-002A.
+    var reservationCosts: [ResearchRun.Resource: Int] { get }
+    /// Dependencies must cooperate with task cancellation and declare the full per-call reservation.
     func draft(for input: ResearchPlanningInput) async throws -> ResearchPlannerDraft
+}
+
+extension ResearchPlanning {
+    var reservationCosts: [ResearchRun.Resource: Int] { [:] }
 }
 
 struct FixtureResearchPlanner: ResearchPlanning {

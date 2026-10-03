@@ -24,6 +24,8 @@ DS-002A accepted: bounded untrusted draft -> host-owned plan, global query dedup
 
 ## Known follow-ups
 
+DS-002B is in progress in D:/daifuku/.worktrees/ds-002b, branch codex/deepsearch-model-planner: shared APIClient bounded planning adapter, cumulative planning attempt/output reservations and explicit checkpoint v2. No executable acceptance or live model quality result is claimed yet. See tasks/active/DS-002B-model-planner.md.
+
 - Planner, multi-query search, gap analysis, ledgers, synthesis mapping, durable store and resume execution remain future work.
 - Historical Memory five-trial evaluator computes each pass but does not assert every pass; saved evidence records five successes. Correct separately without altering production semantics.
 - Local DNS precheck does not pin connection IP; page-byte ceiling applies after full download. These are static limitations, not reproduced exploits.
