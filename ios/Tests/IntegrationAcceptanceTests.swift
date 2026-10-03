@@ -10,6 +10,20 @@ import XCTest
     // did not recall the accounting-field docs. Frozen Memory fixtures are unrelated.
     private let publicQuery = "DeepSeek API Platform auto-caching 官方平台的自动缓存与缓存命中折扣"
 
+    func testOfficialFactWitnessAcceptsNormalizedDirectoryURL() {
+        let fixture = ResearchSource(title: "Official platform", url: URL(string: "https://www.deepseek.com/en/platform/")!,
+            snippet: "", pageText: "Auto-caching with reduced cache hit pricing")
+        XCTAssertTrue(Self.isOfficialPlatform(fixture))
+        XCTAssertEqual(fixture.url.path.split(separator: "/").last, "platform")
+        XCTAssertFalse(Self.isOfficialPlatform(.init(title: "Imitation", url: URL(string: "https://example.com/en/platform/")!, snippet: "")))
+    }
+
+    private static func isOfficialPlatform(_ source: ResearchSource) -> Bool {
+        // Foundation normalizes directory URL.path and may remove its final
+        // slash. Match the final path component, never the serialized '/platform/'.
+        source.url.host == "www.deepseek.com" && source.url.path.split(separator: "/").last == "platform"
+    }
+
     func testOptInPublicNetworkReadiness() async throws {
         let key = try realKey()
         let start = ContinuousClock.now
@@ -99,7 +113,10 @@ import XCTest
             report["snippetOnlyFallbackCount"] = gathered.sources.filter { $0.pageText.isEmpty }.count
             report["sources"] = gathered.sources.enumerated().map { index, source in
                 ["number": index + 1, "title": source.title, "url": source.url.absoluteString,
-                 "pageCharacters": source.pageText.count, "snippetCharacters": source.snippet.count] as [String: Any]
+                 "pageCharacters": source.pageText.count, "snippetCharacters": source.snippet.count,
+                 "parsedHost": source.url.host ?? "", "parsedPath": source.url.path,
+                 "officialPlatform": Self.isOfficialPlatform(source),
+                 "publicCachingFactPresent": (source.snippet + " " + source.pageText).localizedCaseInsensitiveContains("Auto-caching with reduced cache hit pricing")] as [String: Any]
             }
             XCTAssertFalse(gathered.sources.isEmpty)
             XCTAssertTrue(gathered.sources.contains { !$0.pageText.isEmpty }, "At least one real page fetch required")
@@ -174,7 +191,7 @@ import XCTest
             let describesCaching = lowerAnswer.contains("自动缓存") || lowerAnswer.contains("auto-caching")
             let describesDiscount = (lowerAnswer.contains("命中") || lowerAnswer.contains("cache hit")) &&
                 ["价格", "折扣", "低", "优惠", "price", "pricing", "discount"].contains { lowerAnswer.contains($0) }
-            let witness = citedSources.first { $0.url.host == "www.deepseek.com" && $0.url.path.contains("/platform/") &&
+            let witness = citedSources.first { Self.isOfficialPlatform($0) &&
                 ($0.snippet + " " + $0.pageText).localizedCaseInsensitiveContains(publicFact) }
             let verified = witness != nil && describesCaching && describesDiscount && currentEvidence.contains {
                 $0.content.localizedCaseInsensitiveContains(publicFact)

@@ -50,6 +50,8 @@ jobs:
             Validation/GeneratePreStep3MemoryStore.swift -o "$RUNNER_TEMP/fixture-generator"
           "$RUNNER_TEMP/fixture-generator" "$PWD/Tests/Resources/pre-step3.store"
           xcodegen generate
+          xcrun swift -e 'import Foundation; let url = URL(string: "https://www.deepseek.com/en/platform/")!; print("officialDirectoryURL", url.absoluteString, "normalizedPath", url.path)' \
+            | tee "$RUNNER_TEMP/acceptance/url-path-diagnostic.log"
           grep -q IntegrationAcceptanceTests.swift PersonalDeepSeek.xcodeproj/project.pbxproj
           simulator_id="$(xcrun simctl list devices available | sed -nE '/iPhone/s/.*\(([0-9A-Fa-f-]{36})\) \((Booted|Shutdown)\).*/\1/p' | sed -n '1p')"
           test -n "$simulator_id"
