@@ -10,7 +10,7 @@ final class ResearchRunTests: XCTestCase {
                   evidenceCharacters: ceiling, synthesisTokens: ceiling, wallSeconds: wall)
     }
 
-    private func run(ceiling: Int = 3, wall: TimeInterval = 100) throws -> ResearchRun {
+    private func makeRun(ceiling: Int = 3, wall: TimeInterval = 100) throws -> ResearchRun {
         try .init(conversationID: UUID(), query: "Research this question", budget: budget(ceiling: ceiling, wall: wall), now: start)
     }
 
@@ -22,7 +22,7 @@ final class ResearchRunTests: XCTestCase {
     }
 
     func testLegalLifecycleAndRefinementTransitions() throws {
-        var value = try run()
+        var value = try makeRun()
         let identity = value.id
         let binding = value.conversationID
         for next in [ResearchRun.Phase.planning, .collecting, .evaluating, .collecting, .evaluating, .synthesizing, .completed] {
@@ -36,7 +36,7 @@ final class ResearchRunTests: XCTestCase {
     }
 
     func testInvalidTransitionsAreAtomic() throws {
-        var value = try run()
+        var value = try makeRun()
         for next in [ResearchRun.Phase.queued, .collecting, .evaluating, .synthesizing, .completed, .cancelled, .failed] {
             let before = value
             assertError(.invalidTransition(.queued, next)) { try value.transition(to: next, at: start.addingTimeInterval(1)) }
@@ -47,7 +47,7 @@ final class ResearchRunTests: XCTestCase {
     }
 
     private func fixture(in phase: ResearchRun.Phase) throws -> ResearchRun {
-        var value = try run()
+        var value = try makeRun()
         switch phase {
         case .queued: return value
         case .cancelled:
@@ -90,7 +90,7 @@ final class ResearchRunTests: XCTestCase {
 
     func testEveryTerminalOutcomeIsMonotonic() throws {
         for terminal in [ResearchRun.Phase.completed, .cancelled, .failed] {
-            var value = try run()
+            var value = try makeRun()
             switch terminal {
             case .completed:
                 for next in [ResearchRun.Phase.planning, .collecting, .evaluating, .synthesizing, .completed] {
@@ -113,7 +113,7 @@ final class ResearchRunTests: XCTestCase {
 
     func testAllResourceCeilingsAndAtomicMultidimensionalReservation() throws {
         for resource in ResearchRun.Resource.allCases {
-            var value = try run()
+            var value = try makeRun()
             try value.reserve([resource: 3], at: start)
             XCTAssertEqual(value.usage[resource], 3)
             let before = value
@@ -125,7 +125,7 @@ final class ResearchRunTests: XCTestCase {
     }
 
     func testInvalidReservationsAndOverflowAreAtomic() throws {
-        var value = try run(ceiling: Int.max)
+        var value = try makeRun(ceiling: Int.max)
         for costs in ([[:], [.queries: 0], [.queries: -1], [.rounds: 1, .fetches: -1]] as [[ResearchRun.Resource: Int]]) {
             let before = value
             assertError(.invalidReservation) { try value.reserve(costs, at: start) }
@@ -161,7 +161,7 @@ final class ResearchRunTests: XCTestCase {
     }
 
     func testWallDeadlineAndBackwardsClockLeaveStateUntouched() throws {
-        var value = try run(wall: 10)
+        var value = try makeRun(wall: 10)
         try value.reserve([.queries: 1], at: start.addingTimeInterval(5))
         let before = value
         assertError(.invalidClock) { try value.reserve([.queries: 1], at: start.addingTimeInterval(4)) }
@@ -173,14 +173,14 @@ final class ResearchRunTests: XCTestCase {
         try value.fail(.budgetExhausted, at: start.addingTimeInterval(11))
         XCTAssertEqual(value.phase, .failed)
         XCTAssertEqual(value.failure, .budgetExhausted)
-        var cancelled = try run(wall: 10)
+        var cancelled = try makeRun(wall: 10)
         try cancelled.cancel(at: start.addingTimeInterval(20))
         XCTAssertEqual(cancelled.phase, .cancelled)
         XCTAssertNil(cancelled.failure)
     }
 
     func testCheckpointRoundTripPreservesIdentityUsageAndOriginalDeadline() throws {
-        var original = try run(wall: 10)
+        var original = try makeRun(wall: 10)
         try original.transition(to: .planning, at: start.addingTimeInterval(1))
         try original.reserve([.queries: 2, .fetches: 1], at: start.addingTimeInterval(2))
         var restored = try JSONDecoder().decode(ResearchRun.self, from: JSONEncoder().encode(original))
@@ -202,7 +202,7 @@ final class ResearchRunTests: XCTestCase {
     }
 
     func testCheckpointDecoderRejectsCorruptionAndFutureVersions() throws {
-        let value = try run()
+        let value = try makeRun()
         let mutations: [(inout [String: Any]) -> Void] = [
             { $0["version"] = 2 }, { $0["version"] = 0 }, { $0["query"] = " " },
             { $0["id"] = "invalid UUID" }, { $0.removeValue(forKey: "conversationID") },
