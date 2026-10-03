@@ -3,7 +3,7 @@
 Each increment uses a dedicated branch/worktree, independent review and tests before integration. No automatic packaging or production deployment.
 
 1. DS-001 Foundation: immutable identity, validated state transitions, cumulative budgets, cancellation/failure, validated versioned checkpoints and offline tests. No Chat behavior change.
-2. DS-002 Planning/multiple queries: split DS-002A pure plan contracts/fixture coordination from DS-002B shared APIClient model adapter. First validate typed drafts, bounded stable host-assigned IDs and query deduplication; then define model output/token/attempt/deadline accounting and version compatibility before live calls. Reuse LocalResearchService. See tasks/active/DS-002-research-planning.md; implementation starts only after DS-001 validation/integration.
+2. DS-002 Planning/multiple queries: DS-002A pure plan contracts/fixture coordination accepted with full Simulator regression and generated-store migration. DS-002B shared APIClient model adapter is next: define model output/token/attempt/deadline accounting and version compatibility before live calls. Reuse LocalResearchService. See tasks/active/DS-002-research-planning.md. DS-002 is not yet complete and Chat remains single-pass.
 3. Evidence/gaps: stable source/evidence IDs, URL deduplication, coverage/contradiction checks, bounded refinement; account for all work against run budget.
 4. Claims/report: claim-evidence-citation validation, explicit gaps, bounded structured synthesis through shared API/SSE.
 5. Persistent lifecycle: separate research store, additive migration design/tests, checkpoint/relaunch/resume and bounded failure recovery without resetting budgets.

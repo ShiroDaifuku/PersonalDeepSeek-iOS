@@ -1,8 +1,8 @@
-# DS-002 Bounded Research Planning (planned)
+# DS-002 Bounded Research Planning (partially completed)
 
 - Goal: typed bounded question decomposition and multi-query plan before iterative evidence collection.
 - Dependency: DS-001 accepted and integrated; preserve canonical branch lineage.
-- Status: DS-002A in progress (tasks/active/DS-002A-planning-contract.md); DS-002B planned. Neither is connected to Chat.
+- Status: DS-002A completed (tasks/completed/DS-002A-planning-contract.md); DS-002B planned. Neither is connected to Chat.
 - Branch/worktree: create a dedicated task branch/worktree from the updated canonical baseline when implementation starts.
 - Owner: architecture agent defines validated plan contract; implementation agent implements within its worktree; independent reviewer and test agent verify.
 - Architecture boundary: ResearchRun owns lifecycle and budgets. Shared APIClient/LocalResearchService remain transport/search owners; no new native-tool runtime.
@@ -15,5 +15,5 @@
 - Forbidden scope: Memory/Profile updates, mutation tools, new search provider, durable store migration, resume/background/UI changes, production deployment or packaging.
 - Acceptance: subquestions and normalized queries are bounded and nonempty; duplicate queries do not consume repeated execution (verified with a fake search executor in DS-002A); each query meets LocalResearchService's existing length constraint; plan IDs remain stable; planner output cannot modify host-owned permissions/context configuration; reservations precede work and do not reset across checkpoints. Draft text can affect planning/query semantics; these structural tests do not prove semantic injection immunity or answer quality.
 - Tests: deterministic multi-question fixtures, duplicate/empty/oversized/invalid plans, cancellation/deadline, exhausted query/round budgets and invalid planner output. Test adapter request/context boundaries separately from real provider quality.
-- Result: pending DS-002A validation. ResearchRun reservation is explicit; planner integration must not infer enforcement from phase transitions alone.
+- Result: DS-002A contracts/fixture coordination accepted; run 37123424473 passed full ordinary XCTest and generated-store migration. ResearchRun reservation is explicit; planner integration must not infer enforcement from phase transitions alone. DS-002 as a whole remains incomplete until DS-002B is implemented and validated.
 - Follow-ups: evidence/source ledger and bounded gap-driven refinement; real model/provider evaluation only after fixture correctness.

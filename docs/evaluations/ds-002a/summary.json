@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-03",
+  "timezone": "Asia/Hong_Kong",
+  "status": "PASS",
+  "source": "43dd89a34bc4f62f03f49a5c65e1c88bfe030ba2",
+  "workflow": "ios-memory-validation.yml",
+  "runId": 37123424473,
+  "runURL": "https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/37123424473",
+  "inputs": {
+    "integration_acceptance": false,
+    "research_followup": false,
+    "research_contract_validation": true
+  },
+  "ordinary": {
+    "total": 254,
+    "passed": 238,
+    "skipped": 16,
+    "failed": 0
+  },
+  "researchPlanning": {
+    "total": 14,
+    "passed": 14,
+    "skipped": 0,
+    "failed": 0,
+    "cases": [
+      "testAlreadyCancelledCallerAndBeforeQueryCancellationDoNotReserve",
+      "testBackwardsClockTerminalizesAtLastValidTimestampAndCallerCancellation",
+      "testBudgetExhaustionNeverInvokesUnreservedWorkOrResetsCheckpoint",
+      "testCancellationBeforeAndDuringPlannerSuppressesLateResult",
+      "testDeadlineInterruptsPlannerAndQueryWithOriginalWallBudget",
+      "testDraftBoundsAndUnicodeControls",
+      "testGlobalDedupStableIDsAssociationsAndExactInput",
+      "testHugeWallBudgetCannotOverflowDeadlineOrDuration",
+      "testIdempotentDispatchStillTerminalizesDeadlineAndCallerCancellation",
+      "testInvalidDraftAndProviderFailureAreClassifiedWithoutRefund",
+      "testNonQueuedCheckpointIsRejectedWithoutResettingCounters",
+      "testPlanDecodingRejectsCorruptionAndOversizedData",
+      "testQueryCancellationAndOverlapKeepAttemptedBudget",
+      "testReservationsPrecedeDispatchAndRepeatedCallsAreDeduplicated"
+    ]
+  },
+  "researchRun": {
+    "total": 10,
+    "passed": 10,
+    "skipped": 0,
+    "failed": 0
+  },
+  "dnsFixtures": {
+    "timeout": "PASS",
+    "cancellation": "PASS",
+    "productionChanged": false
+  },
+  "migration": {
+    "fixture": "generated pre-Step-3 SwiftData store",
+    "total": 1,
+    "passed": 1,
+    "failed": 0
+  },
+  "optionalProviderRetrievalBenchmarks": "skipped by research contract mode",
+  "initialFailure": {
+    "source": "706e35e517657da93a290e8ad0e7c51b93beeb2c",
+    "runId": 37122839222,
+    "total": 254,
+    "skipped": 16,
+    "failed": 1,
+    "planningPassed": 14,
+    "runPassed": 10,
+    "test": "LocalResearchTests.testSystemDNSResolverTimeoutReturnsWithoutWaitingForBlockingLookup",
+    "classification": "existing scheduling-sensitive fixture; exact scheduling sequence not proven",
+    "repair": "explicit blocked lookup gates; same exact timeout/cancellation errors and completion-before-release assertions; no production DNS change"
+  },
+  "limitations": [
+    "No model/search/Chat/Memory/Profile/persistent-store/resume integration",
+    "Fixtures do not prove planning quality, semantic injection immunity or model cost control",
+    "Adapters must cooperate with cancellation",
+    "Plan decoding is structural; use requires expected-context binding validation",
+    "Existing DNS first-callback-wins may accept late success; separate production follow-up"
+  ],
+  "ipaGenerated": false,
+  "productionDeployed": false
+}
