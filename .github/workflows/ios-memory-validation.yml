@@ -2,6 +2,11 @@ name: Validate iOS Memory Step 1
 
 on:
   workflow_dispatch:
+    inputs:
+      integration_acceptance:
+        description: Run opt-in final integration E2E acceptance (no IPA)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -11,7 +16,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  integration-acceptance:
+    if: ${{ inputs.integration_acceptance == true }}
+    uses: ./.github/workflows/ios-integration-acceptance.yml
+    secrets:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+
   validate-memory:
+    if: ${{ inputs.integration_acceptance != true }}
     name: Build and test on iOS Simulator
     runs-on: macos-15
     timeout-minutes: 45
