@@ -4,6 +4,53 @@ import XCTest
 @testable import PersonalDeepSeek
 
 final class MemoryBackfillRealEvaluationTests: XCTestCase {
+    // Diagnostic-only: frozen same_fact input and assertion, five fresh stores.
+    // Never retry a failed trial or change the production extractor prompt.
+    func testSameFactFiveIndependentTrials() async throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["RUN_INTEGRATION_ACCEPTANCE_EVALUATION"] == "1", "Opt-in acceptance only")
+        let apiKey = try XCTUnwrap(ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"])
+        var records: [[String: Any]] = []
+        for trial in 1...5 {
+            let container = try makeContainer()
+            let store = MemoryStore(modelContainer: container)
+            let newerDate = makeDate(2026, 9, 1)
+            let seededID = try await store.insertMemory(scopeID: MemoryScope.localDefault, draft: .init(
+                kind: .durableFact, canonicalText: "用户的电脑是 RTX 4070 Laptop。", createdAt: newerDate,
+                updatedAt: newerDate, lastConfirmedAt: newerDate
+            )).id
+            let extractor = AcceptanceRecordingExtractor(key: apiKey)
+            let processor = MemoryProcessor(store: store, extractor: extractor)
+            let turn = CompletedTurnSnapshot(
+                conversationID: UUID(), userMessageID: UUID(), userText: "我的电脑是 RTX 4070 Laptop。",
+                assistantMessageID: UUID(), assistantText: "明白。",
+                completedAt: makeDate(2024, 1, 1), origin: .historicalBackfill
+            )
+            let details = await processor.processCompletedTurnDetailed(turn)
+            let active = try await store.listMemories(scopeID: MemoryScope.localDefault).filter { $0.status == .active }
+            let seed = active.first { $0.id == seededID }
+            let passed = active.count == 1 && seed?.lastConfirmedAt == newerDate
+                && (seed?.reinforcementCount ?? 0) >= 1
+            let extraction = await extractor.responseData()
+            let raw = extraction.flatMap { try? JSONSerialization.jsonObject(with: $0) } ?? NSNull()
+            let metrics = Self.metrics(details.result)
+            records.append([
+                "trial": trial, "passed": passed, "classification": Self.resultName(details.result),
+                "rawExtraction": raw, "activeCount": active.count,
+                "reinforcementCount": seed?.reinforcementCount ?? -1,
+                "newerConfirmationPreserved": seed?.lastConfirmedAt == newerDate,
+                "canonicalTextPreserved": seed?.canonicalText == "用户的电脑是 RTX 4070 Laptop。",
+                "promptTokens": metrics?.promptTokens ?? 0, "completionTokens": metrics?.completionTokens ?? 0
+            ])
+        }
+        let directory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["INTEGRATION_ACCEPTANCE_REPORT_DIR"] ?? NSTemporaryDirectory())
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: records, options: [.prettyPrinted, .sortedKeys])
+            .write(to: directory.appendingPathComponent("same-fact-five-trials.json"))
+        XCTAssertEqual(records.count, 5)
+        // PASS/NOOP distribution is reported, not forcibly made green. Corruption is blocking.
+        XCTAssertTrue(records.allSatisfy { $0["newerConfirmationPreserved"] as? Bool == true && $0["canonicalTextPreserved"] as? Bool == true })
+    }
+
     func testHistoricalTimelineAgainstRealDeepSeek() async throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["RUN_REAL_MEMORY_BACKFILL_EVALUATION"] == "1",
@@ -128,6 +175,19 @@ final class MemoryBackfillRealEvaluationTests: XCTestCase {
             encoding: .utf8
         )
     }
+}
+
+private actor AcceptanceRecordingExtractor: MemoryExtracting {
+    nonisolated let modelName = MemoryExtractionConfiguration.modelName
+    private let underlying: MemoryExtractionClient
+    private var data: Data?
+    init(key: String) { underlying = MemoryExtractionClient(apiKeyOverride: key) }
+    func extract(turn: CompletedTurnSnapshot, candidates: [ExistingMemoryCandidate]) async throws -> MemoryExtractionOutput {
+        let value = try await underlying.extract(turn: turn, candidates: candidates)
+        data = try JSONEncoder().encode(value.response)
+        return value
+    }
+    func responseData() -> Data? { data }
 }
 
 private struct EvaluationCase {

@@ -1,0 +1,145 @@
+name: Integration Final E2E Acceptance (no IPA)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cloudflare-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: cloudflare
+      - run: npm run check
+        working-directory: cloudflare
+      - run: npm test
+        working-directory: cloudflare
+
+  acceptance:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and install XcodeGen
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_16.4.app
+          xcodebuild -version
+          swift --version
+          brew install xcodegen
+      - name: Generate old-schema migration fixture and project
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          mkdir -p Tests/Resources "$RUNNER_TEMP/acceptance"
+          xcrun swiftc -parse-as-library -module-name PersonalDeepSeek \
+            Validation/GeneratePreStep3MemoryStore.swift -o "$RUNNER_TEMP/fixture-generator"
+          "$RUNNER_TEMP/fixture-generator" "$PWD/Tests/Resources/pre-step3.store"
+          xcodegen generate
+          grep -q IntegrationAcceptanceTests.swift PersonalDeepSeek.xcodeproj/project.pbxproj
+          simulator_id="$(xcrun simctl list devices available | sed -nE '/iPhone/s/.*\(([0-9A-Fa-f-]{36})\) \((Booted|Shutdown)\).*/\1/p' | sed -n '1p')"
+          test -n "$simulator_id"
+          echo "SIMULATOR_ID=$simulator_id" >> "$GITHUB_ENV"
+      - name: Build for testing
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project PersonalDeepSeek.xcodeproj -scheme PersonalDeepSeek \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/AcceptanceDerivedData" build-for-testing \
+            | tee "$RUNNER_TEMP/acceptance/build.log"
+      - name: Run all ordinary XCTest (no live flags)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project PersonalDeepSeek.xcodeproj -scheme PersonalDeepSeek \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/AcceptanceDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/acceptance/ordinary.xcresult" test-without-building \
+            | tee "$RUNNER_TEMP/acceptance/ordinary.log"
+      - name: Enable only additive migration validation
+        run: |
+          set -euo pipefail
+          xctestrun="$(find "$RUNNER_TEMP/AcceptanceDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
+          echo "ACCEPTANCE_XCTESTRUN=$xctestrun" >> "$GITHUB_ENV"
+          python3 - "$xctestrun" <<'PY'
+          import plistlib, sys
+          path = sys.argv[1]
+          with open(path, 'rb') as source: document = plistlib.load(source)
+          def visit(value):
+              if isinstance(value, dict):
+                  if 'TestBundlePath' in value:
+                      value.setdefault('EnvironmentVariables', {})['RUN_STEP3_MIGRATION_VALIDATION'] = '1'
+                  for child in value.values(): visit(child)
+              elif isinstance(value, list):
+                  for child in value: visit(child)
+          visit(document)
+          with open(path, 'wb') as destination: plistlib.dump(document, destination)
+          PY
+      - name: Validate persisted old-schema migration
+        run: |
+          set -o pipefail
+          xcodebuild -xctestrun "$ACCEPTANCE_XCTESTRUN" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/MemoryStep3MigrationTests \
+            -only-testing:PersonalDeepSeekTests/ToolExecutionTests/testAdditiveMigrationKeepsExistingConversationAndMessages \
+            -resultBundlePath "$RUNNER_TEMP/acceptance/migration.xcresult" test-without-building \
+            | tee "$RUNNER_TEMP/acceptance/migration.log"
+      - name: Enable opt-in real acceptance
+        id: real-environment
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEEPSEEK_API_KEY"
+          python3 - "$ACCEPTANCE_XCTESTRUN" "$RUNNER_TEMP/acceptance" <<'PY'
+          import os, plistlib, sys
+          path, report = sys.argv[1:]
+          with open(path, 'rb') as source: document = plistlib.load(source)
+          def visit(value):
+              if isinstance(value, dict):
+                  if 'TestBundlePath' in value:
+                      value.setdefault('EnvironmentVariables', {}).update({
+                          'RUN_INTEGRATION_ACCEPTANCE_EVALUATION': '1',
+                          'INTEGRATION_ACCEPTANCE_REPORT_DIR': report,
+                          'DEEPSEEK_API_KEY': os.environ['DEEPSEEK_API_KEY']})
+                  for child in value.values(): visit(child)
+              elif isinstance(value, list):
+                  for child in value: visit(child)
+          visit(document)
+          with open(path, 'wb') as destination: plistlib.dump(document, destination)
+          PY
+      - name: Real Explicit Deep Research and native smoke
+        run: |
+          set -o pipefail
+          xcodebuild -xctestrun "$ACCEPTANCE_XCTESTRUN" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/IntegrationAcceptanceTests/testOptInExplicitResearchEndToEnd \
+            -only-testing:PersonalDeepSeekTests/IntegrationAcceptanceTests/testOptInNativeProtocolSmoke \
+            -resultBundlePath "$RUNNER_TEMP/acceptance/real-e2e.xcresult" test-without-building \
+            | tee "$RUNNER_TEMP/acceptance/real-e2e.log"
+      - name: Five independent frozen same_fact trials
+        if: ${{ !cancelled() && steps.real-environment.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          xcodebuild -xctestrun "$ACCEPTANCE_XCTESTRUN" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/MemoryBackfillRealEvaluationTests/testSameFactFiveIndependentTrials \
+            -resultBundlePath "$RUNNER_TEMP/acceptance/same-fact.xcresult" test-without-building \
+            | tee "$RUNNER_TEMP/acceptance/same-fact.log"
+      # Upload only explicit allowlisted reports/logs; never the secret-bearing
+      # xctestrun, DerivedData or API request headers.
+      - name: Upload diagnostic evidence (no IPA)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-final-acceptance
+          path: |
+            ${{ runner.temp }}/acceptance/*.json
+            ${{ runner.temp }}/acceptance/*.log
