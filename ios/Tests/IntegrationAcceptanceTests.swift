@@ -35,20 +35,22 @@ import XCTest
         let request = agentRequest(messages: try assemble(sources: [source()]).messages, tools: [], thinking: false)
         let task = Task { @MainActor in
             var generationActive = true
-            defer { generationActive = false }
             var final = false
+            var cancellationObserved = false
             do {
                 for try await event in AgentRunner(model: model, executor: AcceptancePublicFixtureExecutor(), persistence: service).events(for: request) {
                     if case .finalAnswer = event { final = true }
                 }
-                return (final, generationActive, false)
             } catch is CancellationError {
-                generationActive = false
-                return (final, generationActive, true)
+                cancellationObserved = true
             } catch {
-                generationActive = false
-                return (final, generationActive, false)
+                XCTFail("Unexpected cancellation error: \(String(describing: type(of: error)))")
             }
+            // AsyncThrowingStream may finish normally when its iterator is
+            // cancelled. Like ChatView, run cleanup after either termination;
+            // observe it afterwards, not inside a return evaluated before defer.
+            generationActive = false
+            return (final, generationActive, cancellationObserved || Task.isCancelled)
         }
         await model.waitUntilStarted()
         task.cancel()
