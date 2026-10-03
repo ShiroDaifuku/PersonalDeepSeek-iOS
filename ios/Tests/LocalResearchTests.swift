@@ -122,39 +122,55 @@ final class LocalResearchTests: XCTestCase {
     }
 
     func testSystemDNSResolverTimeoutReturnsWithoutWaitingForBlockingLookup() async {
+        let releaseLookup = DispatchSemaphore(value: 0)
+        let completed = expectation(description: "DNS timeout returns while lookup is blocked")
         let resolver = SystemResearchDNSResolver(timeout: 0.02) { _ in
-            Thread.sleep(forTimeInterval: 0.25)
+            releaseLookup.wait()
             return [Self.publicIP]
         }
-
-        do {
-            _ = try await resolver.addresses(for: "slow.example")
-            XCTFail("The DNS timeout must finish first")
-        } catch LocalResearchError.dnsResolutionTimedOut {
-            // Expected.
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+        let task = Task {
+            defer { completed.fulfill() }
+            do {
+                _ = try await resolver.addresses(for: "slow.example")
+                XCTFail("The DNS timeout must finish first")
+            } catch LocalResearchError.dnsResolutionTimedOut {
+                // Expected while the synchronous lookup is still blocked.
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
         }
+        await fulfillment(of: [completed], timeout: 30)
+        // Release on both success and watchdog failure before awaiting cleanup.
+        task.cancel()
+        releaseLookup.signal()
+        await task.value
     }
 
     func testSystemDNSResolverCancellationReturnsWithoutWaitingForBlockingLookup() async {
-        let resolver = SystemResearchDNSResolver(timeout: 5) { _ in
-            Thread.sleep(forTimeInterval: 0.25)
+        let releaseLookup = DispatchSemaphore(value: 0)
+        let started = expectation(description: "Synchronous DNS lookup started")
+        let completed = expectation(description: "DNS cancellation returns while lookup is blocked")
+        let resolver = SystemResearchDNSResolver(timeout: 60) { _ in
+            started.fulfill()
+            releaseLookup.wait()
             return [Self.publicIP]
         }
-        let task = Task { try await resolver.addresses(for: "slow.example") }
-
-        try? await Task.sleep(for: .milliseconds(20))
-        task.cancel()
-
-        do {
-            _ = try await task.value
-            XCTFail("DNS cancellation must propagate")
-        } catch is CancellationError {
-            // Expected.
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+        let task = Task {
+            defer { completed.fulfill() }
+            do {
+                _ = try await resolver.addresses(for: "slow.example")
+                XCTFail("DNS cancellation must propagate")
+            } catch is CancellationError {
+                // Expected while the synchronous lookup is still blocked.
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
         }
+        await fulfillment(of: [started], timeout: 30)
+        task.cancel()
+        await fulfillment(of: [completed], timeout: 30)
+        releaseLookup.signal()
+        await task.value
     }
 
     func testPublicToPublicRedirectIsFollowed() async throws {

@@ -27,6 +27,7 @@ DS-002A is implemented in its dedicated task worktree and undergoing executable 
 - Planner, multi-query search, gap analysis, ledgers, synthesis mapping, durable store and resume execution remain future work.
 - Historical Memory five-trial evaluator computes each pass but does not assert every pass; saved evidence records five successes. Correct separately without altering production semantics.
 - Local DNS precheck does not pin connection IP; page-byte ceiling applies after full download. These are static limitations, not reproduced exploits.
+- DNS resolver uses first-callback-wins; a delayed timer may accept lookup success after its nominal deadline. Define monotonic deadline semantics and reject late success in a separate production task. DS-002A repairs only the scheduling-sensitive DNS test fixtures, not this production limitation.
 - Cloudflare scheduled-task fetch has weaker validation than local Research, but is not Chat's interactive Research path.
 - Legacy ResearchView is not wired into RootView.
 
