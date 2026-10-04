@@ -175,6 +175,37 @@ struct ResearchPlan: Codable, Equatable, Sendable {
 
     static func key(_ text: String) -> String { text.lowercased().precomposedStringWithCanonicalMapping }
 
+    /// A validated append preserves all accepted IDs/text and the proposal's query order.
+    /// This pure operation provides no accounting or execution authority.
+    func appending(_ proposal: ResearchRefinementProposal, for run: ResearchRun) throws -> Self {
+        var associationCount = 0
+        for question in subquestions { associationCount += question.queryIDs.count }
+        guard runID == run.id, conversationID == run.conversationID, originalQuestion == run.query,
+              proposal.runID == run.id, proposal.conversationID == run.conversationID,
+              proposal.baselineQueryCount == queries.count, proposal.baselineQuestionCount == subquestions.count,
+              proposal.baselineAssociationCount == associationCount, proposal.queryCapacity == limits.queries else {
+            throw ValidationError.invalidBinding
+        }
+        let questionIDs = Set(subquestions.map(\.id))
+        guard proposal.targets.allSatisfy({ questionIDs.contains($0.questionID) }) else { throw ValidationError.invalidAssociations }
+        var extendedQuestions: [Subquestion] = []
+        for question in subquestions {
+            let extra = proposal.targets.first(where: { $0.questionID == question.id })?.queryIDs ?? []
+            extendedQuestions.append(.init(id: question.id, question: question.question, queryIDs: question.queryIDs + extra))
+        }
+        let extended = Self(version: version, runID: runID, conversationID: conversationID,
+            originalQuestion: originalQuestion, limits: limits, subquestions: extendedQuestions, queries: queries + proposal.queries)
+        try extended.validate()
+        guard try JSONEncoder().encode(extended).count <= limits.planBytes else { throw ValidationError.oversizedPlan }
+        return extended
+    }
+
+    private init(version: Int, runID: UUID, conversationID: UUID, originalQuestion: String,
+                 limits: ResearchPlanningLimits, subquestions: [Subquestion], queries: [Query]) {
+        self.version = version; self.runID = runID; self.conversationID = conversationID
+        self.originalQuestion = originalQuestion; self.limits = limits; self.subquestions = subquestions; self.queries = queries
+    }
+
     private func validate() throws {
         guard version == Self.version else { throw ValidationError.unsupportedVersion }
         try limits.validate()

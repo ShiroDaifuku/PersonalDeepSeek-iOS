@@ -1,10 +1,15 @@
-# DS-003D2 controlled iterative collection (planned)
+# DS-003D2 controlled iterative collection
 
 - Dependency: accepted DS-003D1 offline refinement contract; dedicated branch/worktree from updated feature/tool-research-integration.
 - Goal: consume an owned proposal in a bounded additional collection round using the existing coordinator and shared LocalResearchService.
-- Status: planned; no additional requests, iterative lifecycle, model refinement or Chat acceptance claimed.
+- Status: implementation; architecture gate accepted 2026-10-04. Baseline ae9217a5dde87c88975c3f13f309c3ad0a3636ca; branch codex/deepsearch-controlled-iteration; worktree D:/daifuku/.worktrees/ds-003d2. Actual Simulator validation pending.
+- Owners: ds003d_implementer Core/Tests; ds003d_reviewer independent source review; ds003d_architecture architecture/test/log audit; Lead docs/workflow/CI/integration.
+- Accepted gate: consume the current owned proposal using its context digest as an anti-replay handle; no transferred DTO adoption. Save and match initial collection limits; inherit owned ledger/coverage limits. Validate direct plan append before reservation, preserving existing IDs/order/text and the proposal's new query order. Empty proposals do no work. Nonempty iterations precharge one round, invalidate stale caches and reuse the same collection loop/admission/token with only new queries.
+- Projection accounting: each successful round builds a new ledger/report version and atomically reserves their complete generated metadata costs before publication. This is explicit new-version materialization work, not a net size delta. Prior cumulative charges remain; existing source/evidence bodies and consumed proposal/plan text are not charged again. Cached getters cost zero. Failure does not refund attempted work or restore old usable projections.
+- Correctability: coordinator proposal construction checks future plan append bounds before charging/caching. Drafts exceeding narrower planning text or extended plan-byte bounds remain replaceable; iteration repeats the validation before admission.
 - Architecture gate: extend the accepted plan while preserving question/query/source identity, global dedup and cumulative query/HTTP/metadata accounting. Define refreshed ledger/report generation and cache invalidation; prior charged text must not be silently refunded or charged again.
 - Lifecycle: reserve rounds and logical queries before work, provider/fallback requests and page hops before HTTP; preserve original deadline, overlap exclusion and late-callback rejection. Decoded proposals cannot claim prior execution or adopt history.
 - Split: deterministic fixture coordination first; optional shared model refinement adapter and live quality evaluation are separate gates. Invalid proposals or exhausted resources must never initiate provider calls.
 - Tests: multiple bounded rounds, shared sources across queries, no repeated planned/attempted work, identity stability, updated coverage, exact charges, admission/failure/cancel/deadline and full Simulator regression/migration.
 - Forbidden: second run actor/search/parser, implicit model calls/unbounded retry, Memory/Profile or persistence/background/Chat changes, IPA/main merge/deploy.
+- Follow-up: DS-003D3 shared model refinement adapter (tasks/active/DS-003D3-model-refinement.md) before claims/report DS-004. Controlled fixture iteration alone does not complete the parent DS-003 stage or establish live quality.

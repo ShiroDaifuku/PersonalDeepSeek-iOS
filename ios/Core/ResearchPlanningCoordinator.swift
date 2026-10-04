@@ -43,6 +43,7 @@ actor ResearchPlanningCoordinator {
     private var operationToken: UUID?
     private var collected: [ResearchCollectedSource] = []
     private var collectionFinished = false
+    private var acceptedCollectionLimits: ResearchCollectionLimits?
     private var evidenceLedger: ResearchEvidenceLedger?
     private var coverageReport: ResearchCoverageReport?
     private var refinementProposal: ResearchRefinementProposal?
@@ -185,6 +186,8 @@ actor ResearchPlanningCoordinator {
             proposal = try ResearchRefinementProposal.build(draft: draft, run: run, plan: plan,
                 planningLimits: self.limits, collection: collectionSnapshot(), ledger: ledger, evidenceLimits: ledger.limits,
                 coverage: coverage, coverageLimits: coverage.limits, attemptedQueryIDs: attempted, limits: limits)
+            // An owner must not cache a proposal that its fixed planning bounds cannot append.
+            _ = try plan.appending(proposal, for: run)
         } catch {
             // A correctable offline error must not hide a deadline/cancellation crossed during validation.
             let validationError = error
@@ -208,6 +211,7 @@ actor ResearchPlanningCoordinator {
         guard !busy else { throw ResearchPlanningError.operationInProgress }
         if collectionFinished, run.phase == .evaluating {
             do { try checkActive() } catch { terminalize(error); throw error }
+            guard acceptedCollectionLimits == limits else { throw ResearchRefinementProposal.ValidationError.invalidBinding }
             return collectionSnapshot()
         }
         guard run.phase == .collecting, let plan = acceptedPlan, attempted.isEmpty else {
@@ -216,59 +220,111 @@ actor ResearchPlanningCoordinator {
         busy = true
         let token = UUID(); operationToken = token
         defer { busy = false; activeCancellation = nil; operationToken = nil }
-        let admission: ResearchHTTPAdmission = { kind in try await self.admit(kind, token: token) }
+        acceptedCollectionLimits = limits
         do {
-            for query in plan.queries {
-                try checkCollection(token)
-                try run.reserve([.queries: 1], at: clock.now())
-                attempted.insert(query.id)
-                let result: ResearchGatherResult
-                do {
-                    result = try await perform {
-                        try await service.searchWithMetadata(query: query.text, limit: limits.resultsPerQuery, admission: admission)
-                    }
-                } catch LocalResearchError.noResults { continue }
-                try checkCollection(token)
-                for candidate in result.sources {
-                    try checkCollection(token)
-                    guard let key = try? limits.key(for: candidate.url) else { continue }
-                    if let index = collected.firstIndex(where: { $0.requestedURLKey == key }) {
-                        if !collected[index].queryIDs.contains(query.id) {
-                            try run.reserve([.evidenceCharacters: query.id.count], at: clock.now())
-                            collected[index].queryIDs.append(query.id)
-                        }
-                        continue
-                    }
-                    // A retained-source ceiling avoids starting HTTP that can never be retained.
-                    guard collected.count < limits.maxSources,
-                          run.usage[.sources]! < run.budget.limits[.sources]! else { continue }
-                    var source = candidate, pageFetched = false
-                    do {
-                        source = try await perform { try await service.fetch(candidate, admission: admission) }
-                        pageFetched = true
-                    } catch is CancellationError { throw CancellationError() }
-                    catch let error as ResearchHTTPAdmissionError { throw error }
-                    catch ResearchPlanningError.deadlineExceeded { throw ResearchPlanningError.deadlineExceeded }
-                    catch let error as ResearchRun.ValidationError { throw error }
-                    catch { /* Ordinary page failure retains the bounded search snippet. */ }
-                    try checkCollection(token)
-                    // Redirect URL identity remains whole; oversized redirects fall back to the requested snippet.
-                    if (try? limits.key(for: source.url)) == nil { source = candidate; pageFetched = false }
-                    let bounded = ResearchSource(id: source.id, title: limits.clipped(source.title), url: source.url,
-                                                 snippet: limits.clipped(source.snippet), pageText: limits.clipped(source.pageText))
-                    let record = ResearchCollectedSource(id: "source\(collected.count + 1)", requestedURLKey: key,
-                        queryIDs: [query.id], provider: result.providerUsed, source: bounded, pageFetched: pageFetched)
-                    try run.reserve([.sources: 1, .evidenceCharacters: record.characterCost], at: clock.now())
-                    collected.append(record)
-                }
-            }
+            try await collectQueries(plan.queries, using: service, limits: limits, token: token)
             try checkCollection(token)
             try run.transition(to: .evaluating, at: clock.now())
             collectionFinished = true
             return collectionSnapshot()
+        } catch { terminalize(error); throw error }
+    }
+
+    /// Executes only the owner's current proposal; the digest is an anti-replay handle,
+    /// never a transferred proposal or permission to bypass cumulative admission.
+    func iterate(expectedProposalContextDigest: String, using service: LocalResearchService,
+                 collectionLimits: ResearchCollectionLimits) async throws -> ResearchCoverageReport {
+        guard !busy else { throw ResearchPlanningError.operationInProgress }
+        guard collectionFinished, run.phase == .evaluating, let plan = acceptedPlan,
+              let ledger = evidenceLedger, let report = coverageReport,
+              let proposal = refinementProposal, let originalLimits = acceptedCollectionLimits,
+              attempted == Set(plan.queries.map(\.id)) else { throw ResearchPlanningError.invalidPhase }
+        do { try checkActive() } catch { terminalize(error); throw error }
+        guard originalLimits == collectionLimits, proposal.contextDigest == expectedProposalContextDigest else {
+            throw ResearchRefinementProposal.ValidationError.invalidBinding
+        }
+        if proposal.queries.isEmpty { return report }
+        let extendedPlan: ResearchPlan
+        do { extendedPlan = try plan.appending(proposal, for: run) }
+        catch {
+            let validationError = error
+            do { try checkActive() } catch { terminalize(error); throw error }
+            throw validationError
+        }
+        busy = true
+        let token = UUID(); operationToken = token
+        defer { busy = false; activeCancellation = nil; operationToken = nil }
+        do {
+            try checkActive()
+            try run.reserve([.rounds: 1], at: clock.now())
+            try run.transition(to: .collecting, at: clock.now())
+            acceptedPlan = extendedPlan
+            refinementProposal = nil; evidenceLedger = nil; coverageReport = nil; collectionFinished = false
+            try await collectQueries(proposal.queries, using: service, limits: collectionLimits, token: token)
+            try checkCollection(token)
+            let nextLedger = try ResearchEvidenceLedger.build(plan: extendedPlan, collection: collectionSnapshot(), limits: ledger.limits)
+            let nextReport = try ResearchCoverageReport.build(plan: extendedPlan, collection: collectionSnapshot(),
+                ledger: nextLedger, evidenceLimits: ledger.limits, limits: report.limits)
+            try checkCollection(token)
+            // Each new projection's full metadata is cumulative work, even when IDs are stable.
+            // Already charged source bodies, proposal text and plan fields receive no second debit.
+            try run.reserve([.evidenceCharacters: nextLedger.metadataCharacterCost + nextReport.metadataCharacterCost], at: clock.now())
+            try run.transition(to: .evaluating, at: clock.now())
+            evidenceLedger = nextLedger; coverageReport = nextReport; collectionFinished = true
+            return nextReport
         } catch {
-            terminalize(error)
-            throw error
+            let operationError = error
+            do { try checkActive() } catch { terminalize(error); throw error }
+            terminalize(operationError); throw operationError
+        }
+    }
+
+    private func collectQueries(_ queries: [ResearchPlan.Query], using service: LocalResearchService,
+                                limits: ResearchCollectionLimits, token: UUID) async throws {
+        let admission: ResearchHTTPAdmission = { kind in try await self.admit(kind, token: token) }
+        for query in queries where !attempted.contains(query.id) {
+            try checkCollection(token)
+            try run.reserve([.queries: 1], at: clock.now())
+            attempted.insert(query.id)
+            let result: ResearchGatherResult
+            do {
+                result = try await perform {
+                    try await service.searchWithMetadata(query: query.text, limit: limits.resultsPerQuery, admission: admission)
+                }
+            } catch LocalResearchError.noResults { continue }
+            try checkCollection(token)
+            for candidate in result.sources {
+                try checkCollection(token)
+                guard let key = try? limits.key(for: candidate.url) else { continue }
+                if let index = collected.firstIndex(where: { $0.requestedURLKey == key }) {
+                    if !collected[index].queryIDs.contains(query.id) {
+                        try run.reserve([.evidenceCharacters: query.id.count], at: clock.now())
+                        collected[index].queryIDs.append(query.id)
+                    }
+                    continue
+                }
+                // A retained-source ceiling avoids starting HTTP that can never be retained.
+                guard collected.count < limits.maxSources,
+                      run.usage[.sources]! < run.budget.limits[.sources]! else { continue }
+                var source = candidate, pageFetched = false
+                do {
+                    source = try await perform { try await service.fetch(candidate, admission: admission) }
+                    pageFetched = true
+                } catch is CancellationError { throw CancellationError() }
+                catch let error as ResearchHTTPAdmissionError { throw error }
+                catch ResearchPlanningError.deadlineExceeded { throw ResearchPlanningError.deadlineExceeded }
+                catch let error as ResearchRun.ValidationError { throw error }
+                catch { /* Ordinary page failure retains the bounded search snippet. */ }
+                try checkCollection(token)
+                // Redirect URL identity remains whole; oversized redirects fall back to the requested snippet.
+                if (try? limits.key(for: source.url)) == nil { source = candidate; pageFetched = false }
+                let bounded = ResearchSource(id: source.id, title: limits.clipped(source.title), url: source.url,
+                                             snippet: limits.clipped(source.snippet), pageText: limits.clipped(source.pageText))
+                let record = ResearchCollectedSource(id: "source\(collected.count + 1)", requestedURLKey: key,
+                    queryIDs: [query.id], provider: result.providerUsed, source: bounded, pageFetched: pageFetched)
+                try run.reserve([.sources: 1, .evidenceCharacters: record.characterCost], at: clock.now())
+                collected.append(record)
+            }
         }
     }
 
