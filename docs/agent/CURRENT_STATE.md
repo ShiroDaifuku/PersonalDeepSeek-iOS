@@ -1,6 +1,6 @@
 # Current engineering state
 
-Updated: 2026-10-03 (Asia/Hong_Kong).
+Updated: 2026-10-04 (Asia/Hong_Kong).
 
 ## Canonical baseline
 
@@ -24,11 +24,13 @@ DS-002A accepted: bounded untrusted draft -> host-owned plan, global query dedup
 
 DS-002B accepted: shared APIClient model-capable adapter with explicit output cap, single HTTP attempt, bounded UTF-8/SSE/usage validation, cumulative attempt/output reservations and checkpoint v2 rejecting v1/future versions. Source 4bd020f354d4464600de34a164c2d1b4bb8902e4 passed first Simulator run 37130582558: 264 ordinary tests (16 skipped, zero failures), model planner 10/10, Planning 14/14, Run 10/10 and generated-store migration 1/1. Independent reviewer/test agent accepted source and actual logs. See tasks/completed/DS-002B-model-planner.md and docs/evaluations/ds-002b/VALIDATION.md. DS-002 component planning stage is complete; live quality and Chat integration remain unverified/unimplemented.
 
-DS-003A accepted: one existing coordinator/run owner, admitted logical query/provider HTTP/page-hop work, checkpoint v3 searchRequests, noRedirect accounted search and bounded run/conversation-bound transient sources/query links. Source c2f881f636551c136fc6d8ecd1eedac948f666d0 passed first Simulator run 37132615814: 284 ordinary tests (16 skipped, zero failures), Collection 19/19, Run 11/11, Planning 14/14, model planner 10/10 and generated-store migration 1/1. Independent source/test reviewer and actual log audit accepted. See tasks/completed/DS-003A-accounted-collection.md and docs/evaluations/ds-003a/VALIDATION.md. No evidence ledger or Chat wiring yet.
+DS-003A accepted: one existing coordinator/run owner, admitted logical query/provider HTTP/page-hop work, checkpoint v3 searchRequests, noRedirect accounted search and bounded run/conversation-bound transient sources/query links. Source c2f881f636551c136fc6d8ecd1eedac948f666d0 passed first Simulator run 37132615814: 284 ordinary tests (16 skipped, zero failures), Collection 19/19, Run 11/11, Planning 14/14, model planner 10/10 and generated-store migration 1/1. Independent source/test reviewer and actual log audit accepted. See tasks/completed/DS-003A-accounted-collection.md and docs/evaluations/ds-003a/VALIDATION.md. DS-003A itself did not include a ledger or Chat wiring.
+
+DS-003B accepted: immutable bounded ledger with stable evidence/source references, first-observation provider provenance, Unicode segment offsets and explicit additional truncation. Full plan/collection context digests and expected-host Data decoding reject changes even in unselected text; the existing coordinator charges only novel metadata and caches once. Checkpoint v3 is unchanged. Source 202047883869a75cae77f0958f84fdf17dfe12b5 passed first Simulator run 37140273860: 300 ordinary tests (284 passed, 16 skipped, zero failures), ledger 16/16, Collection 19/19, Run 11/11, Planning 14/14, model planner 10/10 and generated-store migration 1/1. Independent source review and actual log audit accepted. See tasks/completed/DS-003B-evidence-ledger.md and docs/evaluations/ds-003b/VALIDATION.md. No Chat wiring or live quality acceptance.
 
 ## Known follow-ups
 
-- Next: DS-003B bounded evidence ledger (tasks/active/DS-003B-evidence-ledger.md); DS-003 remains partially complete. Coverage/gaps, synthesis mapping, durable store, resume execution and Chat integration remain future work. Live search/model quality is not established by fixtures.
+- Next: DS-003C bounded coverage/gap contract (tasks/active/DS-003C-coverage-gaps.md); DS-003 remains partially complete. Query associations alone do not prove relevance or factual support. Refinement, synthesis mapping, durable store, resume execution and Chat integration remain future work. Live search/model quality is not established by fixtures.
 - Historical Memory five-trial evaluator computes each pass but does not assert every pass; saved evidence records five successes. Correct separately without altering production semantics.
 - Local DNS precheck does not pin connection IP; page-byte ceiling applies after full download. These are static limitations, not reproduced exploits.
 - Retained collection UTF-8/character caps do not bound full response download, transient search parsing or oversized grapheme allocation. Distinct requested URLs redirecting to one page may remain separate source records.
@@ -37,3 +39,4 @@ DS-003A accepted: one existing coordinator/run owner, admitted logical query/pro
 - Legacy ResearchView is not wired into RootView.
 
 No IPA, main merge, release, production deploy or production migration is authorized.
+

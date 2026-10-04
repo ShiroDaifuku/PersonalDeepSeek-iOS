@@ -2,7 +2,7 @@
 
 - Dependency: accepted DS-003A accounted collection; start from updated feature/tool-research-integration in a dedicated branch/worktree.
 - Goal: define bounded untrusted evidence entries and source/query/subquestion associations for later coverage/gap evaluation.
-- Status: implementation; architecture projection/accounting gate accepted on 2026-10-04. No CI, live evaluation, final-report or Chat acceptance claimed yet.
+- Status: accepted 2026-10-04 after independent architecture/source/test review and first actual Simulator CI success. No live evaluation, final-report or Chat acceptance claimed.
 - Baseline: ee290e1505c3061fccadd2151041b71614e3139d; branch codex/deepsearch-evidence-ledger; worktree D:/daifuku/.worktrees/ds-003b.
 - Owners: Lead coordinates integration/docs/workflow; ds003b_implementer owns Core/Tests; ds003b_architecture and ds003b_reviewer review independently; validation audits actual Simulator logs.
 - Accepted design: immutable versioned deterministic projection of the accepted plan and finished collection; Data-boundary decode requires expected host context and limits. First-observation provider is attached only to the first observed query; redirect aliases retain distinct requested-key identities. Reuse collected text charges, reserve novel retained metadata through the existing coordinator, cache one ledger with fixed limits. No resource or checkpoint change (v3).
@@ -12,3 +12,6 @@
 - Split: offline ledger contracts/fixtures first; coverage/contradiction/gaps and model-driven refinement follow separate reviewed increments. No source validity, factual truth or semantic injection immunity is inferred from structurally valid evidence.
 - Tests: exact binding/provenance/ID stability, duplicate/redirect alias policy, bounded segmentation/metadata, invalid references/corrupt decoding, unchanged collection accounting and terminal monotonicity; full ordinary regression/migration as applicable.
 - Forbidden: Memory/Profile mutation, second search/runtime/parser, implicit paid requests, production prompts/Chat/UI, persisted research store/resume/background, IPA/main merge/deploy.
+- Result: source 202047883869a75cae77f0958f84fdf17dfe12b5, Simulator run 37140273860; 300 ordinary tests (284 passed, 16 skipped, zero failures), ledger 16/16, Collection 19/19, Run 11/11, Planning 14/14, model planner 10/10 and generated-store migration 1/1. No failed CI run or repair. Evidence: docs/evaluations/ds-003b/VALIDATION.md and summary.json.
+- Final binding includes two 64-character canonical JSON SHA256 context digests; these identity checks are newly charged metadata even for empty ledgers, not authentication. The context-bound decode wrapper remains mandatory for transferred data.
+- Follow-up: DS-003C coverage/gaps, then separately reviewed refinement and factual claim/report mapping. Retained limits do not prove transient memory bounds or source quality. Final handoff changes documentation only.

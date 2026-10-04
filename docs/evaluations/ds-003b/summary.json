@@ -1,0 +1,19 @@
+{
+  "task": "DS-003B",
+  "date": "2026-10-04",
+  "timezone": "Asia/Hong_Kong",
+  "baseline": "ee290e1505c3061fccadd2151041b71614e3139d",
+  "source": "202047883869a75cae77f0958f84fdf17dfe12b5",
+  "branch": "codex/deepsearch-evidence-ledger",
+  "ciRun": 37140273860,
+  "ciUrl": "https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/37140273860",
+  "conclusion": "success",
+  "review": "independent architecture/source/test-design review accepted",
+  "ordinaryTests": { "total": 300, "passed": 284, "skipped": 16, "failed": 0 },
+  "researchSuites": { "evidenceLedger": 16, "collection": 19, "run": 11, "planning": 14, "modelPlanner": 10, "failed": 0 },
+  "generatedStoreMigration": { "passed": 1, "failed": 0, "testSeconds": 0.552 },
+  "checkpointVersion": 3,
+  "liveApiEvaluation": false,
+  "ipa": false,
+  "chatIntegration": false
+}
