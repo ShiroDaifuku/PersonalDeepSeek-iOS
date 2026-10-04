@@ -39,4 +39,3 @@ DS-003B accepted: immutable bounded ledger with stable evidence/source reference
 - Legacy ResearchView is not wired into RootView.
 
 No IPA, main merge, release, production deploy or production migration is authorized.
-
