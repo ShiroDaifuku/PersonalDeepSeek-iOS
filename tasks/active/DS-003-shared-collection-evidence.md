@@ -1,8 +1,8 @@
-# DS-003 shared collection and evidence (planned)
+# DS-003 shared collection and evidence (in progress)
 
 - Dependency: accepted DS-001/DS-002 component stages; start from updated feature/tool-research-integration in a dedicated branch/worktree.
 - Goal: execute validated multi-query plans through shared LocalResearchService with accountable attempted work and bounded source/evidence identity.
-- Status: DS-003A accounted collection and DS-003B bounded evidence ledger accepted (tasks/completed/DS-003A-accounted-collection.md and tasks/completed/DS-003B-evidence-ledger.md). DS-003 is partially complete; DS-003C coverage/gap contract is next (tasks/active/DS-003C-coverage-gaps.md). No live search/model quality or Chat acceptance claimed.
+- Status: DS-003A accounted collection, DS-003B bounded evidence ledger and DS-003C retrieval coverage/gap contract accepted (tasks/completed/DS-003A-accounted-collection.md, DS-003B-evidence-ledger.md and DS-003C-coverage-gaps.md). DS-003 is partially complete; DS-003D bounded refinement/iteration is next (tasks/active/DS-003D-bounded-refinement.md). No factual support, live search/model quality or Chat acceptance claimed.
 - First design gate: distinguish logical query reservations from provider/fallback HTTP attempts and page fetch attempts. Existing gatherWithMetadata hides fetch attempts; define shared service composition/hooks and atomic host reservations before calls, including retries/fallbacks, instead of another fetch stack. Review resource/checkpoint compatibility if dimensions must change.
 - Collection contract: preserve accepted plan/run binding, stable source/evidence IDs and query associations; bounded URL deduplication and source/text counts; failed/cancelled attempts remain charged. Preserve original run deadline and cancellation; late results cannot revive terminal runs.
 - Evidence boundary: web/model text is untrusted; no raw evidence or intermediate claim enters Memory/Profile. Reuse shared URL/DNS/redirect validation; separately track existing DNS late-success/IP-pinning and post-download byte-limit limitations rather than claiming they are fixed.

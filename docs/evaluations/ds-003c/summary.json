@@ -1,0 +1,22 @@
+{
+  "task": "DS-003C",
+  "date": "2026-10-04",
+  "timezone": "Asia/Hong_Kong",
+  "baseline": "4c108d242bba66c1bb007c91bbb250817d6d63c0",
+  "source": "ca33a88582a442c310c17079213d014998f46694",
+  "branch": "codex/deepsearch-coverage-gaps",
+  "ciRun": 37204732728,
+  "ciUrl": "https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/37204732728",
+  "conclusion": "success",
+  "priorRuns": [
+    { "ciRun": 37204438203, "source": "389c3add823f025d6c74a8910f53d18d0d0b198d", "conclusion": "failure", "stage": "build-for-testing", "classification": "source compileability defect: complex metadataCharacterCost type-check timeout", "testsExecuted": false }
+  ],
+  "ordinaryTests": { "total": 313, "passed": 297, "skipped": 16, "failed": 0 },
+  "researchSuites": { "coverage": 13, "evidenceLedger": 16, "collection": 19, "run": 11, "planning": 14, "modelPlanner": 10, "failed": 0 },
+  "generatedStoreMigration": { "passed": 1, "failed": 0, "testSeconds": 0.414 },
+  "checkpointVersion": 3,
+  "review": "independent architecture/source/test-design and actual CI log audit accepted; failed first-run history retained",
+  "liveApiEvaluation": false,
+  "ipa": false,
+  "chatIntegration": false
+}

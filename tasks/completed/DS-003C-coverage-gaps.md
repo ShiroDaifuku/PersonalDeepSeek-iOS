@@ -2,7 +2,7 @@
 
 - Dependency: accepted DS-003B evidence ledger; start from updated feature/tool-research-integration in a dedicated branch/worktree.
 - Goal: deterministic bounded per-subquestion evidence coverage and explicit collection gaps, as input to later reviewed refinement and synthesis.
-- Status: implementation; architecture gate accepted 2026-10-04, actual Simulator verification pending. No factual support, contradiction detector, model refinement or Chat acceptance claimed.
+- Status: accepted 2026-10-04 after independent architecture/source/test review and actual Simulator log audit. No factual support, contradiction detector, model refinement or Chat acceptance claimed.
 - Baseline: 4c108d242bba66c1bb007c91bbb250817d6d63c0; branch codex/deepsearch-coverage-gaps; worktree D:/daifuku/.worktrees/ds-003c.
 - Owners: Lead docs/workflow/CI/integration; ds003c_implementer Core/Tests; ds003c_reviewer independent source review; ds003c_architecture architecture gate and independent test/log audit.
 - Accepted design: deterministic immutable versioned per-question retrieval availability and independent gap flags; verify supplied ledger against the full expected plan/collection/host evidence limits before use, bind report to full ledger context, retain all plan questions. Hard reference/encoded ceilings reject instead of silently dropping rows. Existing coordinator requires an owned ledger, precharges new report metadata and caches fixed limits, preserving checkpoint v3 and nine resources.
@@ -12,3 +12,6 @@
 - Tests: shared-query/many-to-many associations, empty/metadata-only/partially truncated ledgers, snippet versus page distinctions, deterministic identities, corrupt or cross-context references, exact budget delta and terminal behavior; full Simulator regression and migration.
 - Follow-up: separately design bounded query refinement and factual claim/evidence/citation evaluation after this offline contract is reviewed.
 - Forbidden: Memory/Profile mutation, new search/runtime/parser, production prompts/Chat/UI, persistence/resume/background, live paid requests, IPA/main merge/deploy.
+- Result: source ca33a88582a442c310c17079213d014998f46694 passed Simulator run37204732728: 313 ordinary tests (297 passed,16 skipped,0 failures), Coverage13/13, Ledger16/16, Collection19/19, Run11/11, Planning14/14, model planner10/10 and generated-store migration1/1 (0.414 seconds). Evidence: docs/evaluations/ds-003c/VALIDATION.md and summary.json.
+- Preserved failure: first run37204438203/source389c3add823f025d6c74a8910f53d18d0d0b198d failed Swift type checking of the nested metadata cost expression; tests/migration did not run. Reviewed repair uses equivalent explicit accumulations with unchanged assertions/semantics.
+- Follow-up: tasks/active/DS-003D-bounded-refinement.md; separately reviewed offline proposals and later bounded iterative coordination. Final handoff changes documentation only; no Chat/live-quality/IPA acceptance.
