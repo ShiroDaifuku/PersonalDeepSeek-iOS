@@ -68,14 +68,24 @@ struct ResearchCoverageReport: Codable, Equatable, Sendable {
     /// Every retained textual reference occurrence and label is new report metadata.
     /// No evidence body or question text is copied or charged again.
     var metadataCharacterCost: Int {
-        ledgerContextDigest.count + sources.reduce(0) { $0 + $1.id.count + $1.origin.rawValue.count }
-        + evidence.reduce(0) { $0 + $1.id.count + $1.sourceID.count }
-        + questions.reduce(0) { total, row in
-            total + row.id.count + row.sourceIDs.reduce(0) { $0 + $1.count }
-            + row.pageEvidenceIDs.reduce(0) { $0 + $1.count }
-            + row.snippetEvidenceIDs.reduce(0) { $0 + $1.count }
-            + row.availability.rawValue.count + row.gaps.reduce(0) { $0 + $1.rawValue.count }
+        var total = ledgerContextDigest.count
+        for source in sources {
+            total += source.id.count
+            total += source.origin.rawValue.count
         }
+        for entry in evidence {
+            total += entry.id.count
+            total += entry.sourceID.count
+        }
+        for question in questions {
+            total += question.id.count
+            for id in question.sourceIDs { total += id.count }
+            for id in question.pageEvidenceIDs { total += id.count }
+            for id in question.snippetEvidenceIDs { total += id.count }
+            total += question.availability.rawValue.count
+            for gap in question.gaps { total += gap.rawValue.count }
+        }
+        return total
     }
 
     static func build(plan: ResearchPlan, collection: ResearchCollectionSnapshot,
