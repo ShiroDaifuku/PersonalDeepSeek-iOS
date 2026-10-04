@@ -45,6 +45,7 @@ actor ResearchPlanningCoordinator {
     private var collectionFinished = false
     private var evidenceLedger: ResearchEvidenceLedger?
     private var coverageReport: ResearchCoverageReport?
+    private var refinementProposal: ResearchRefinementProposal?
 
     init(run: ResearchRun, limits: ResearchPlanningLimits, planner: any ResearchPlanning,
          clock: ResearchPlanningClock = .continuous) {
@@ -167,6 +168,40 @@ actor ResearchPlanningCoordinator {
             coverageReport = report
             return report
         } catch { terminalize(error); throw error }
+    }
+
+    /// Accepts one offline proposal. No model call, plan amendment, or additional query execution.
+    /// Invalid drafts can be corrected before reservation; budget and clock failures terminalize.
+    func buildRefinement(draft: ResearchRefinementDraft, limits: ResearchRefinementLimits) throws -> ResearchRefinementProposal {
+        guard !busy else { throw ResearchPlanningError.operationInProgress }
+        guard collectionFinished, run.phase == .evaluating, let plan = acceptedPlan,
+              let ledger = evidenceLedger, let coverage = coverageReport else { throw ResearchPlanningError.invalidPhase }
+        do { try checkActive() } catch { terminalize(error); throw error }
+        if let existing = refinementProposal {
+            guard existing.limits == limits else { throw ResearchRefinementProposal.ValidationError.invalidBinding }
+        }
+        let proposal: ResearchRefinementProposal
+        do {
+            proposal = try ResearchRefinementProposal.build(draft: draft, run: run, plan: plan,
+                planningLimits: self.limits, collection: collectionSnapshot(), ledger: ledger, evidenceLimits: ledger.limits,
+                coverage: coverage, coverageLimits: coverage.limits, attemptedQueryIDs: attempted, limits: limits)
+        } catch {
+            // A correctable offline error must not hide a deadline/cancellation crossed during validation.
+            let validationError = error
+            do { try checkActive() } catch { terminalize(error); throw error }
+            throw validationError
+        }
+        do {
+            try checkActive()
+            if let existing = refinementProposal {
+                guard existing == proposal else { throw ResearchRefinementProposal.ValidationError.invalidBinding }
+                return existing
+            }
+            try run.reserve([.evidenceCharacters: proposal.metadataCharacterCost], at: clock.now())
+            refinementProposal = proposal
+            return proposal
+        } catch let error as ResearchRefinementProposal.ValidationError { throw error }
+        catch { terminalize(error); throw error }
     }
 
     func collect(using service: LocalResearchService, limits: ResearchCollectionLimits) async throws -> ResearchCollectionSnapshot {

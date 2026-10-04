@@ -152,7 +152,7 @@ struct ResearchPlan: Codable, Equatable, Sendable {
         return plan
     }
 
-    fileprivate static func normalized(_ text: String) throws -> String {
+    static func normalized(_ text: String) throws -> String {
         for scalar in text.unicodeScalars {
             // Newlines/tabs are ordinary separators. Reject all other controls and format
             // characters, including zero-width and bidi controls. ZWJ/ZWNJ are retained
@@ -173,7 +173,7 @@ struct ResearchPlan: Codable, Equatable, Sendable {
         return result
     }
 
-    private static func key(_ text: String) -> String { text.lowercased().precomposedStringWithCanonicalMapping }
+    static func key(_ text: String) -> String { text.lowercased().precomposedStringWithCanonicalMapping }
 
     private func validate() throws {
         guard version == Self.version else { throw ValidationError.unsupportedVersion }

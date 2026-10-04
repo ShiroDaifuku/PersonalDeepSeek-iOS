@@ -1,5 +1,9 @@
 # Architecture decisions
 
+## ADR-010: Offline refinement proposals precede controlled iteration
+
+Context: retrieval gaps describe retained availability, not factual support or permission to search. Decision: validate bounded untrusted target/query drafts against the complete rebuilt ledger and coverage, immutable run identity/budget/time, canonical attempted IDs and fixed host limits. Reject every normalized repeated or previously planned query, including unattempted queries; both original query and association capacity constrain future IDs. Bind the original bounded draft through a stable digest with ordered budget rows. The sole coordinator keeps only the validated proposal and reserves new textual metadata once; invalid drafts and cache conflicts remain correctable without changing execution state, while deadline/cancel/budget remain terminal. Empty targets are an explicit metadata-only no-work proposal. Alternative: amend the accepted plan immediately or use availability as an answer-quality verdict. Reason: separate suggestion validation from permission, accounting and execution. Consequence: checkpoint v3 and existing resources remain unchanged; DS-003D2 must separately review and implement controlled iteration. Codable/digests do not authenticate history or create persistence; byte caps cover retained representations, not transient heap allocation.
+
 ## ADR-001: ResearchRun independent from AgentRunner
 
 Context: native tools are accepted infrastructure; Research is single-pass. Decision: ResearchRun owns long workflows and budgets; AgentRunner retains ordinary native protocol. Alternative: inflate AgentLoopBudget and embed research there. Reason: different lifecycle and evidence responsibilities. Consequence: reuse shared search/transport; no duplicate runtime or protocol parser.
