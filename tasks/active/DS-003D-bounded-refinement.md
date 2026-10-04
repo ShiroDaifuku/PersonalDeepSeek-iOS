@@ -1,0 +1,10 @@
+# DS-003D bounded refinement and iterative collection (planned)
+
+- Dependency: accepted DS-003C retrieval coverage/gap contract; start from updated feature/tool-research-integration in a dedicated branch/worktree.
+- Goal: turn explicit collection gaps into a bounded additional-query proposal and later controlled collection rounds through the existing run owner and shared search/model transport.
+- Status: planned; no iterative execution, live quality or Chat acceptance claimed.
+- First architecture gate: separate offline proposal validation from model-driven planning and execution. Define accepted-plan extension, stable query/source/evidence identities, cross-round global deduplication, per-question provenance and cached ledger/report replacement without resetting or double-charging cumulative budgets.
+- Proposal gate: host-owned run/conversation/question binding and query ceilings; reject duplicate/previously attempted/dangling/oversized proposals. Retrieval absence, snippet-only data and ledger truncation are diagnostics, not proof of factual insufficiency or an instruction to issue paid requests.
+- Execution gate: explicitly precharge new rounds, logical queries, planning attempts/output and every provider/page HTTP attempt. Preserve original deadline, terminal monotonicity, overlap exclusion and late-callback rejection. No second run actor/search stack/parser.
+- Split into independently reviewed increments: offline refinement contract first; then host-controlled iterative coordination and optional shared model adapter. Run full Simulator regression/migration and deterministic multi-round failure/budget/cancel tests before live evaluation.
+- Forbidden: Memory/Profile mutation, persistent store/resume/background, production Chat/UI or prompts, new paid provider/service, implicit unbounded retry, IPA/main merge/deploy.

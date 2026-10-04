@@ -44,6 +44,7 @@ actor ResearchPlanningCoordinator {
     private var collected: [ResearchCollectedSource] = []
     private var collectionFinished = false
     private var evidenceLedger: ResearchEvidenceLedger?
+    private var coverageReport: ResearchCoverageReport?
 
     init(run: ResearchRun, limits: ResearchPlanningLimits, planner: any ResearchPlanning,
          clock: ResearchPlanningClock = .continuous) {
@@ -145,6 +146,27 @@ actor ResearchPlanningCoordinator {
             terminalize(error)
             throw error
         }
+    }
+
+    /// Coverage consumes only this owner's already charged ledger, without implicit ledger work.
+    func buildCoverage(limits: ResearchCoverageLimits) throws -> ResearchCoverageReport {
+        guard !busy else { throw ResearchPlanningError.operationInProgress }
+        guard collectionFinished, run.phase == .evaluating, let plan = acceptedPlan, let ledger = evidenceLedger else {
+            throw ResearchPlanningError.invalidPhase
+        }
+        do { try checkActive() } catch { terminalize(error); throw error }
+        if let existing = coverageReport {
+            guard existing.limits == limits else { throw ResearchCoverageReport.ValidationError.invalidBinding }
+            return existing
+        }
+        do {
+            let report = try ResearchCoverageReport.build(plan: plan, collection: collectionSnapshot(),
+                ledger: ledger, evidenceLimits: ledger.limits, limits: limits)
+            try checkActive()
+            try run.reserve([.evidenceCharacters: report.metadataCharacterCost], at: clock.now())
+            coverageReport = report
+            return report
+        } catch { terminalize(error); throw error }
     }
 
     func collect(using service: LocalResearchService, limits: ResearchCollectionLimits) async throws -> ResearchCollectionSnapshot {
@@ -270,7 +292,8 @@ actor ResearchPlanningCoordinator {
         case ResearchRun.ValidationError.wallTimeExceeded,
              ResearchRun.ValidationError.budgetExceeded(_), ResearchPlanningError.deadlineExceeded:
             reason = .budgetExhausted
-        case is ResearchPlan.ValidationError, is ResearchEvidenceLedger.ValidationError, is DecodingError, is ResearchPlannerError:
+        case is ResearchPlan.ValidationError, is ResearchEvidenceLedger.ValidationError, is ResearchCoverageReport.ValidationError,
+             is DecodingError, is ResearchPlannerError:
             reason = .invalidResponse
         case ResearchPlanningError.providerUnavailable, is LocalResearchError:
             reason = .providerUnavailable
