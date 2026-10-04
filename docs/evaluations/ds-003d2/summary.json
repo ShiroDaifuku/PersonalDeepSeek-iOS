@@ -1,0 +1,23 @@
+{
+  "task": "DS-003D2",
+  "date": "2026-10-04",
+  "timezone": "Asia/Hong_Kong",
+  "baseline": "ae9217a5dde87c88975c3f13f309c3ad0a3636ca",
+  "source": "1b36440c7a89cecf352d0e867f67d639a389ad8f",
+  "branch": "codex/deepsearch-controlled-iteration",
+  "ciRun": 37208933293,
+  "ciUrl": "https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/37208933293",
+  "conclusion": "success",
+  "priorRuns": [],
+  "ordinaryTests": { "total": 352, "passed": 336, "skipped": 16, "failed": 0 },
+  "researchSuites": { "iteration": 21, "refinement": 18, "coverage": 13, "evidenceLedger": 16, "collection": 19, "run": 11, "planning": 14, "modelPlanner": 10, "failed": 0 },
+  "generatedStoreMigration": { "passed": 1, "failed": 0, "testSeconds": 0.636 },
+  "checkpointVersion": 3,
+  "review": "independent architecture/source/test-design and actual CI log audit accepted",
+  "projectionAccounting": "full generated metadata materialization per new version; no repeated source/evidence body charge or refunds",
+  "iterativeCollection": "controlled fixture execution",
+  "modelRefinement": false,
+  "liveApiEvaluation": false,
+  "ipa": false,
+  "chatIntegration": false
+}
