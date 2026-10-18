@@ -33,6 +33,8 @@ struct ChatView: View {
     @State private var showingConversationSettings = false
     @State private var photoSelection: [PhotosPickerItem] = []
     @State private var attachments: [PendingAttachment] = []
+    @State private var isLoadingAttachments = false
+    @State private var cameraImportError: String?
     @State private var showingFilePicker = false
     @State private var showingCamera = false
     @State private var attachmentError: String?
@@ -57,7 +59,17 @@ struct ChatView: View {
             .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
             .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { try await confirmTask(action) }, onCancel: { cancelTask(action) }) }
             .sheet(item: $pendingKnowledgeAction) { pending in KnowledgeToolConfirmationView(pending: pending, onConfirm: { confirmKnowledge(pending) }, onCancel: { pendingKnowledgeAction = nil }) }
-            .fullScreenCover(isPresented: $showingCamera) { CameraPicker { data in if let data, let value = PendingAttachment.image(data: data, name: "camera.jpg") { attachments.append(value) } } }
+            .fullScreenCover(isPresented: $showingCamera, onDismiss: {
+                if let message = cameraImportError { attachmentError = message; cameraImportError = nil }
+            }) {
+                CameraPicker { data in
+                    guard let data else { return }
+                    guard let value = PendingAttachment.image(data: data, name: "camera.jpg") else {
+                        cameraImportError = "照片解码或压缩失败，请重新拍摄或选择较小的图片。"; return
+                    }
+                    attachments.append(value)
+                }
+            }
             .fileImporter(isPresented: $showingFilePicker, allowedContentTypes: [.image, .plainText, .json, .pdf], allowsMultipleSelection: true) { result in importFiles(result) }
             .fileImporter(isPresented: $showingKnowledgeImporter, allowedContentTypes: [.pdf, .plainText, .json, .commaSeparatedText, .xml], allowsMultipleSelection: true) { result in importKnowledgeFiles(result) }
             .onChange(of: photoSelection) { _, selection in loadPhotos(selection) }
@@ -172,11 +184,12 @@ struct ChatView: View {
                 Button { requestCamera() } label: { Label("拍照", systemImage: "camera") }
                 Button { showingFilePicker = true } label: { Label("选取文件", systemImage: "doc") }
                 }
-            } label: { Image(systemName: "plus").font(.body.weight(.semibold)).frame(width: 34, height: 34).background(.thinMaterial, in: Circle()) }.disabled(isStreaming)
+            } label: { Image(systemName: "plus").font(.body.weight(.semibold)).frame(width: 34, height: 34).background(.thinMaterial, in: Circle()) }.disabled(isStreaming || isLoadingAttachments)
             TextField(manualTool?.title ?? "询问任何问题", text: $input, axis: .vertical).lineLimit(1...6).focused($composerFocused).padding(.horizontal, 13).padding(.vertical, 9).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             Button { if isStreaming { cancelGeneration() } else { composerFocused = false; send() } } label: {
-                Image(systemName: isStreaming ? "stop.fill" : "arrow.up").font(.body.weight(.bold)).foregroundStyle(.white).frame(width: 36, height: 36).background(isStreaming ? Color.red : Color.accentColor, in: Circle())
-            }.disabled(!isStreaming && input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty).accessibilityLabel(isStreaming ? "停止生成" : "发送")
+                if isLoadingAttachments { ProgressView().frame(width: 36, height: 36) }
+                else { Image(systemName: isStreaming ? "stop.fill" : "arrow.up").font(.body.weight(.bold)).foregroundStyle(.white).frame(width: 36, height: 36).background(isStreaming ? Color.red : Color.accentColor, in: Circle()) }
+            }.disabled(!isStreaming && (isLoadingAttachments || (input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty))).accessibilityLabel(isLoadingAttachments ? "正在准备图片" : (isStreaming ? "停止生成" : "发送"))
         }.padding(.horizontal, 12).padding(.vertical, 10).background(.bar)
     }
 
@@ -219,7 +232,7 @@ struct ChatView: View {
     }
 
     private func send() {
-        guard !isStreaming else { return }
+        guard !isStreaming, !isLoadingAttachments else { return }
         composerFocused = false
         let typedText = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typedText.isEmpty || !attachments.isEmpty else { return }
@@ -659,7 +672,24 @@ struct ChatView: View {
     }
 
     private func loadPhotos(_ selection: [PhotosPickerItem]) {
-        Task { var loaded: [PendingAttachment] = []; for (index, item) in selection.enumerated() { if let data = try? await item.loadTransferable(type: Data.self), let attachment = PendingAttachment.image(data: data, name: "photo-\(index + 1).jpg") { loaded.append(attachment) } }; attachments.append(contentsOf: loaded); photoSelection = [] }
+        guard !selection.isEmpty, !isLoadingAttachments else { return }
+        isLoadingAttachments = true
+        Task {
+            defer { isLoadingAttachments = false }
+            var loaded: [PendingAttachment] = []
+            var failed = 0
+            for (index, item) in selection.enumerated() {
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self),
+                          let attachment = PendingAttachment.image(data: data, name: "photo-\(index + 1).jpg") else {
+                        failed += 1; continue
+                    }
+                    loaded.append(attachment)
+                } catch { failed += 1 }
+            }
+            attachments.append(contentsOf: loaded); photoSelection = []
+            if failed > 0 { attachmentError = "有 \(failed) 张照片读取或压缩失败，已添加 \(loaded.count) 张。请重新选择失败的图片。" }
+        }
     }
     private func requestCamera() { Task { guard UIImagePickerController.isSourceTypeAvailable(.camera) else { attachmentError = "当前设备没有可用相机。"; return }; if await CameraAuthorization.request() { showingCamera = true } else { attachmentError = "请在系统设置中允许相机权限。" } } }
     private func importFiles(_ result: Result<[URL], Error>) {

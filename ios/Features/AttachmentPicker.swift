@@ -24,6 +24,7 @@ struct PendingAttachment: Identifiable, Equatable {
         // Always rasterize: normalize camera EXIF orientation, scale and alpha.
         // JPEG bytes are now a self-contained upright RGB image on every path.
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        format.preferredRange = .standard
         let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIColor.white.setFill(); context.fill(CGRect(origin: .zero, size: size))
             original.draw(in: CGRect(origin: .zero, size: size))
