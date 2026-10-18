@@ -37,6 +37,7 @@ struct ChatView: View {
     @State private var cameraImportError: String?
     @State private var showingFilePicker = false
     @State private var showingCamera = false
+    @State private var showingMathTutor = false
     @State private var attachmentError: String?
     @State private var pendingTaskAction: PendingTaskAction?
     @State private var pendingKnowledgeAction: PendingKnowledgeAction?
@@ -56,6 +57,7 @@ struct ChatView: View {
 
     private var presentedChat: some View {
         lifecycleChat
+            .sheet(isPresented: $showingMathTutor) { MathTutorHost() }
             .sheet(isPresented: $showingConversationSettings) { if let current { ConversationSettingsView(conversation: current) } }
             .sheet(item: $pendingTaskAction) { action in TaskToolConfirmationView(action: action, onConfirm: { try await confirmTask(action) }, onCancel: { cancelTask(action) }) }
             .sheet(item: $pendingKnowledgeAction) { pending in KnowledgeToolConfirmationView(pending: pending, onConfirm: { confirmKnowledge(pending) }, onCancel: { pendingKnowledgeAction = nil }) }
@@ -174,6 +176,7 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 10) {
             Menu {
                 Section("本次对话工具") {
+                    Button { composerFocused = false; showingMathTutor = true } label: { Label("数学教学 · 考研数学一", systemImage: "function") }
                     Button { selectManualTool(.scheduledTask) } label: { Label("创建定时任务", systemImage: "clock.badge.plus") }
                     Button { selectManualTool(.webSearch) } label: { Label("联网搜索", systemImage: "globe") }
                     Button { selectManualTool(.deepResearch) } label: { Label("开始深度搜索", systemImage: "sparkle.magnifyingglass") }
