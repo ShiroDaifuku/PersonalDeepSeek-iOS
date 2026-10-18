@@ -131,7 +131,8 @@ private final class MathTestModel: AgentModelStreaming, @unchecked Sendable {
     func testNoOrdinaryDatabaseOrMemoryMutation() async throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
         let chatURL = root.appendingPathComponent("chat.store")
-        let chatSchema = Schema([Conversation.self, ChatMessage.self])
+        let chatSchema = Schema([Conversation.self, ChatMessage.self, LocalKnowledgeBase.self, LocalKnowledgeDocument.self,
+            LocalKnowledgeChunk.self, UserMemoryProfile.self, MemoryItem.self, MemorySource.self, MemoryTurnRecord.self, ToolExecutionRecord.self])
         let chatContainer = try ModelContainer(for: chatSchema, configurations: [ModelConfiguration(schema: chatSchema, url: chatURL)])
         let chat = ModelContext(chatContainer)
         let a = Conversation(title: "A", systemPrompt: "private-A"), b = Conversation(title: "B", systemPrompt: "private-B")
@@ -139,6 +140,13 @@ private final class MathTestModel: AgentModelStreaming, @unchecked Sendable {
         chat.insert(ChatMessage(role: "user", content: "original question", conversation: a))
         chat.insert(ChatMessage(role: "assistant", content: "original answer", conversation: a))
         chat.insert(ChatMessage(role: "user", content: "other question", conversation: b)); try chat.save()
+        // Test fixture only: math production code never receives this MemoryStore.
+        let originalMemory = MemoryStore(modelContainer: chatContainer)
+        _ = try await originalMemory.getOrCreateProfile(scopeID: MemoryScope.localDefault)
+        let profile = try await originalMemory.updateProfile(scopeID: MemoryScope.localDefault, expectedRevision: 0,
+            payload: .init(sourceDigest: "existing-profile-fixture"))
+        let memory = try await originalMemory.insertMemory(scopeID: MemoryScope.localDefault,
+            draft: .init(kind: .preference, canonicalText: "existing unrelated preference"))
         let mathContainer = try MathStudyDatabase.container(at: root.appendingPathComponent("math.store"))
         let math = MathLearningStore(modelContainer: mathContainer)
         _ = try await math.create(id: UUID(), statement: "求导", subject: .calculus, topicID: nil, photoFilename: nil)
@@ -150,6 +158,11 @@ private final class MathTestModel: AgentModelStreaming, @unchecked Sendable {
         XCTAssertEqual(conversations.first { $0.title == "A" }?.systemPrompt, "private-A")
         XCTAssertEqual(conversations.first { $0.title == "A" }?.messages.count, 2)
         XCTAssertEqual(Set(try reloaded.fetch(FetchDescriptor<ChatMessage>()).map(\.content)), ["original question", "original answer", "other question"])
+        let reopenedMemory = MemoryStore(modelContainer: reopened)
+        let afterProfile = try await reopenedMemory.profile(scopeID: MemoryScope.localDefault)
+        let afterMemory = try await reopenedMemory.memory(id: memory.id, scopeID: MemoryScope.localDefault)
+        XCTAssertEqual(afterProfile, profile)
+        XCTAssertEqual(afterMemory, memory)
     }
     func testConcurrentStorageOperationsDoNotShareModels() async throws {
         let store = try store()

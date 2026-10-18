@@ -69,9 +69,10 @@ enum MathSyllabus {
     @Relationship(deleteRule: .cascade, inverse: \MathAttempt.problem) var attempts: [MathAttempt]
     @Relationship(deleteRule: .cascade, inverse: \MathLearningEvidence.problem) var evidence: [MathLearningEvidence]
     init(id: UUID, statement: String, subject: MathSubject, topicID: String?, photoFilename: String?) {
+        let now = Date()
         self.id = id; scopeID = MathStudyScope.local; self.statement = statement
         subjectRawValue = subject.rawValue; self.topicID = topicID; self.photoFilename = photoFilename
-        confirmedAt = Date(); createdAt = confirmedAt; attempts = []; evidence = []
+        confirmedAt = now; createdAt = now; attempts = []; evidence = []
     }
 }
 
