@@ -81,7 +81,10 @@ private final class ImageHTTPProtocol: URLProtocol, @unchecked Sendable {
         do { _ = try await run(client, url: "data:image/jpeg;base64,YQ=="); XCTFail() }
         catch { XCTAssertEqual(error as? ChatImageError, .invalidImage) }
         do { _ = try await run(client, url: ClientImageTests.testImage().dataURL, model: "deepseek-v4-pro"); XCTFail() }
-        catch { XCTAssertEqual(error as? ClientError, .modelDoesNotSupportImages("deepseek-v4-pro")) }
+        catch {
+            guard case .modelDoesNotSupportImages(let name) = error as? ClientError else { return XCTFail("Expected model image guard") }
+            XCTAssertEqual(name, "deepseek-v4-pro")
+        }
         XCTAssertTrue(ImageHTTPProtocol.state.captured().isEmpty)
     }
 
