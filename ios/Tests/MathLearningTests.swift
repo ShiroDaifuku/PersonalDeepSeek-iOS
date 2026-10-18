@@ -277,6 +277,7 @@ private final class MathTestModel: AgentModelStreaming, @unchecked Sendable {
         let hint = try await collect(MathTutorPrompt.teaching(problem: problem, mode: .hint, work: "我不知道从哪里开始"))
         let solution = try await collect(MathTutorPrompt.teaching(problem: problem, mode: .solution, work: "请完整解答"))
         if let root = ProcessInfo.processInfo.environment["CLIENT_SMOKE_REPORT_DIR"] {
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: root), withIntermediateDirectories: true)
             let report: [String: String] = ["imageOrigin": "UIKit-generated public derivative exercise", "transcription": transcription,
                 "hint": hint, "solution": solution, "acceptance": "transport smoke; hint quality requires human review; not a curriculum accuracy benchmark"]
             try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: root).appendingPathComponent("math-teaching-smoke.json"), options: .atomic)
