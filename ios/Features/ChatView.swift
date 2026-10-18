@@ -460,7 +460,9 @@ struct ChatView: View {
                     toolStatus = referenceSections.isEmpty ? "正在生成回答…" : "工具执行完成，正在整理回答…"
                     let toolHistoryContext = await toolExecutionService.contextForChat(
                         conversationID: conversation.id,
-                        excludingIDs: currentTurnToolExecutionIDs
+                        excludingIDs: currentTurnToolExecutionIDs,
+                        currentUserText: displayText,
+                        previousUserText: history.last(where: { $0.role == "user" })?.content
                     )
                     let currentKnowledgeContext = referenceSections.joined(separator: "\n\n")
                     let requestMessages: [APIMessage]

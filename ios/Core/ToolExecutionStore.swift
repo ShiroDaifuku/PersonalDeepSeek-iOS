@@ -201,15 +201,20 @@ final class ToolExecutionService: Sendable {
     func contextForChat(
         conversationID: UUID,
         excludingIDs: [UUID] = [],
+        currentUserText: String? = nil,
+        previousUserText: String? = nil,
         budget: ToolHistoryContextBudget = .chatDefault
     ) async -> ToolHistoryContextSnapshot? {
         do {
             let records = try await store.recentSuccessful(
                 conversationID: conversationID,
                 excludingIDs: excludingIDs,
-                limit: budget.maximumExecutions
+                limit: currentUserText == nil ? budget.maximumExecutions : min(32, max(0, min(32, budget.maximumExecutions)) * 4)
             )
-            return ToolHistoryContextBuilder.build(records: records, budget: budget)
+            let admitted = currentUserText.map { query in
+                records.filter { ToolHistoryRelevance.admits($0, current: query, previousUser: previousUserText) }
+            } ?? records
+            return ToolHistoryContextBuilder.build(records: admitted, budget: budget)
         } catch {
             return nil
         }

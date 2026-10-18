@@ -12,7 +12,7 @@ struct RichMessageView: View {
     }
 }
 
-private struct MathMarkdownWebView: UIViewRepresentable {
+struct MathMarkdownWebView: UIViewRepresentable {
     let text: String
     @Binding var contentHeight: CGFloat
 
@@ -93,13 +93,21 @@ private struct MathMarkdownWebView: UIViewRepresentable {
       function escapeHTML(value) {
         return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
       }
+      // Parse Markdown syntax before escaping raw HTML tokens. Escaping the entire
+      // input first changes `>` into text and destroys blockquotes. Raw HTML remains inert.
+      const safeRenderer = new marked.Renderer();
+      safeRenderer.html = token => escapeHTML(token.text);
       function secureLinks() {
         root.querySelectorAll('a').forEach(link => {
           try {
-            const url = new URL(link.getAttribute('href'), 'https://local.invalid/');
-            if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) link.removeAttribute('href');
-            else { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
-          } catch { link.removeAttribute('href'); }
+            const href = link.getAttribute('href') || link.getAttribute('xlink:href') || '';
+            const url = new URL(href);
+            if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) throw new Error('unsafe link');
+            link.setAttribute('target', '_blank'); link.setAttribute('rel', 'noopener noreferrer');
+          } catch {
+            link.removeAttribute('href'); link.removeAttribute('xlink:href');
+            link.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+          }
         });
       }
       function reportHeight() {
@@ -109,11 +117,11 @@ private struct MathMarkdownWebView: UIViewRepresentable {
         const normalized = decodeBase64(encoded)
           .replaceAll('\\[', '$$').replaceAll('\\]', '$$')
           .replaceAll('\\(', '$').replaceAll('\\)', '$');
-        const source = escapeHTML(normalized);
         if (window.MathJax?.typesetClear) MathJax.typesetClear([root]);
-        root.innerHTML = marked.parse(source, { gfm: true, breaks: true });
+        root.innerHTML = marked.parse(normalized, { gfm: true, breaks: true, renderer: safeRenderer });
         secureLinks();
         if (window.MathJax?.typesetPromise) await MathJax.typesetPromise([root]);
+        secureLinks();
         reportHeight();
       }
       new ResizeObserver(reportHeight).observe(root);

@@ -33,8 +33,10 @@ struct PendingKnowledgeAction: Identifiable, Equatable {
 enum AssistantIntentRouter {
     static func preferredTool(for text: String) -> String? {
         let value = text.lowercased()
-        let editWords = ["修改任务", "编辑任务", "把任务", "改成", "暂停任务", "恢复任务", "edit task", "reschedule"]
-        if editWords.contains(where: value.contains) { return "edit_scheduled_task" }
+        let explicitEdits = ["修改任务", "编辑任务", "暂停任务", "恢复任务", "edit task", "reschedule"]
+        let taskObject = ["任务", "提醒", "闹钟", "定时", "task", "reminder", "alarm"].contains(where: value.contains)
+        let editAction = ["改成", "修改", "编辑", "调整", "暂停", "恢复", "取消", "change", "update", "pause", "resume"].contains(where: value.contains)
+        if explicitEdits.contains(where: value.contains) || (taskObject && editAction) { return "edit_scheduled_task" }
         let scheduleWords = ["提醒我", "定时", "每天", "每周", "每月", "明天", "后天", "小时后", "分钟后", "schedule", "remind me", "every day", "every week"]
         if scheduleWords.contains(where: value.contains) { return "create_scheduled_task" }
         if isDeepResearchRequest(text) { return "start_deep_search" }

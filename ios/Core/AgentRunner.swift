@@ -70,6 +70,7 @@ struct AgentRunner: Sendable {
             let start = clock.now
             var firstToken: ContinuousClock.Instant?, content = "", reasoning = "", reason: String?
             var accumulator = ToolCallAccumulator(), ended = false, usage = AgentUsage()
+            var contentCount = StreamingCharacterCount(), reasoningCount = StreamingCharacterCount()
             var receivedUsage = false
             var contentChunks: [String] = []
             for try await delta in model.streamRound(input) {
@@ -77,10 +78,12 @@ struct AgentRunner: Sendable {
                 switch delta {
                 case .reasoning(let text):
                     if firstToken == nil { firstToken = clock.now }
+                    reasoningCount.append(text)
                     reasoning += text; allReasoning += text
                     continuation.yield(.reasoningDelta(text))
                 case .content(let text):
                     if firstToken == nil { firstToken = clock.now }
+                    contentCount.append(text)
                     content += text
                     if request.enabledTools.isEmpty || finalOnly { continuation.yield(.contentDelta(text)) }
                     else { contentChunks.append(text) }
@@ -94,7 +97,7 @@ struct AgentRunner: Sendable {
                 case .done: ended = true
                 case .usage: break
                 }
-                guard content.count + reasoning.count <= budget.maxRoundOutputCharacters else { throw AgentError.budgetExceeded }
+                guard contentCount.count + reasoningCount.count <= budget.maxRoundOutputCharacters else { throw AgentError.budgetExceeded }
             }
             guard ended else { throw ClientError.streamEnded }
             let calls = try accumulator.finalized()
