@@ -14,6 +14,20 @@ private actor ClientRequestLog {
 }
 
 final class ClientWebServiceTests: XCTestCase {
+    func testDirectURLFetchDoesNotSearchAndIsRoutedAsWeb() async throws {
+        XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "读取网页 https://example.com/public"), "web_search")
+        XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "深度研究最新消息"), "start_deep_search")
+        let log = ClientRequestLog()
+        let fetcher = ClientWebHTTP { request in
+            await log.append(request)
+            XCTAssertEqual(request.url?.path, "/v1/tools/fetch")
+            return .init(data: Data(#"{"title":"Public","content":"Public page body"}"#.utf8), url: request.url!, statusCode: 200)
+        }
+        let result = try await DeepSeekWebService(key: { "fixture" }, fetcher: fetcher).gather(query: "https://example.com/public", limit: 3)
+        XCTAssertEqual(result.sources.first?.title, "Public")
+        XCTAssertEqual(result.sources.first?.pageText, "Public page body")
+        let count = await log.all().count; XCTAssertEqual(count, 1)
+    }
     func testOfficialSearchFetchSchemaAndIndependentKey() async throws {
         let log = ClientRequestLog()
         let fetcher = ClientWebHTTP { request in

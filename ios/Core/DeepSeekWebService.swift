@@ -57,6 +57,13 @@ struct DeepSeekWebService: Sendable {
     }
 
     func gather(query: String, limit: Int = 3) async throws -> ResearchGatherResult {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("https://") || trimmed.hasPrefix("http://") {
+            guard let url = URL(string: trimmed), !trimmed.contains(where: \.isWhitespace),
+                  LocalResearchService.isAllowed(url) else { throw DeepSeekWebError.invalidURL }
+            let source = try await fetch(.init(title: "", url: url, snippet: ""))
+            return .init(providerUsed: .deepSeek, sources: [source])
+        }
         let rows = try await search(query: query, limit: limit)
         var sources: [ResearchSource] = []
         // Sequential and at most three fetches: predictable charge/cancel boundary.

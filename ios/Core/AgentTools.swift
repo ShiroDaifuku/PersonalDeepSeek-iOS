@@ -27,7 +27,7 @@ enum ToolRegistry {
         guard Set(names).count == names.count, names.allSatisfy(readOnlyNames.contains) else { throw AgentError.unavailableTool }
         return names.map { name in
             var function: [String: Any] = ["name": name,
-                "description": name == "web_search" ? "Search current public web information. Returns bounded sources; refine queries only when necessary." : "Search enabled documents stored on this device. Returns document titles, source IDs and bounded excerpts.",
+                "description": name == "web_search" ? "Search current public web information using a concise query (at most 128 characters), or fetch a specific HTTPS page by setting query to that exact URL. Returns bounded untrusted sources; refine queries only when necessary." : "Search enabled documents stored on this device. Returns document titles, source IDs and bounded excerpts.",
                 "parameters": ["type": "object", "additionalProperties": false,
                     "properties": ["query": ["type": "string"], "limit": ["type": "integer", "enum": [1, 2, 3]]],
                     "required": ["query", "limit"]]]
