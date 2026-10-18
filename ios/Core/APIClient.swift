@@ -48,6 +48,7 @@ final class APIClient: Sendable, AgentModelStreaming {
     private let suppliedKey: String?
     private let session: URLSession
     private let apiKeyProvider: @Sendable () -> String?
+    private let imageUploads = ChatImageUpload()
 
     init(apiKey: String? = nil, session: URLSession = .shared,
          apiKeyProvider: @escaping @Sendable () -> String? = { KeychainStore.readAPIKey() }) {
@@ -58,7 +59,7 @@ final class APIClient: Sendable, AgentModelStreaming {
             reasoningEffort: reasoningEffort, toolNames: [], toolChoice: .auto))
     }
 
-    static func requestBody(_ input: AgentModelRequest) throws -> Data {
+    static func requestBody(_ input: AgentModelRequest, uploadedImages: [String: String] = [:]) throws -> Data {
         guard (1...3).contains(input.maximumAttempts),
               input.maxOutputTokens.map({ (1...393_216).contains($0) }) ?? true,
               input.responseByteLimit.map({ (1...1_048_576).contains($0) }) ?? true else {
@@ -72,7 +73,17 @@ final class APIClient: Sendable, AgentModelStreaming {
             throw ClientError.modelDoesNotSupportImages(requestModel)
         }
         var body: [String: Any] = ["model": requestModel, "stream": true,
-            "messages": input.messages.map(\.wireMessage),
+            "messages": try input.messages.map { message -> [String: Any] in
+                guard !message.imageDataURLs.isEmpty, !uploadedImages.isEmpty else { return message.wireMessage }
+                var wire = message.wireMessage
+                var parts: [[String: Any]] = message.content.isEmpty ? [] : [["type": "text", "text": message.content]]
+                for url in message.imageDataURLs {
+                    guard let fileID = uploadedImages[url], fileID.hasPrefix("file-api-") else { throw ChatImageError.invalidUploadResponse }
+                    parts.append(["type": "file", "file_id": fileID])
+                }
+                wire["content"] = parts
+                return wire
+            },
             "thinking": ["type": input.thinking ? "enabled" : "disabled"],
             "reasoning_effort": input.reasoningEffort,
             "stream_options": ["include_usage": true]]
@@ -94,7 +105,11 @@ final class APIClient: Sendable, AgentModelStreaming {
                     guard let key = suppliedKey ?? apiKeyProvider(), !key.isEmpty else { throw ClientError.missingKey }
                     let headers = ["Content-Type": "application/json", "X-Request-ID": UUID().uuidString, "Authorization": "Bearer \(key)"]
                     var request = URLRequest(url: endpoint); request.httpMethod = "POST"; headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
-                    request.httpBody = try Self.requestBody(input); request.timeoutInterval = 610
+                    // Validate model/count/body before any upload. A failed upload
+                    // must never silently drop the image and continue text-only.
+                    _ = try Self.requestBody(input)
+                    let uploaded = try await imageUploads.prepare(input.messages.flatMap(\.imageDataURLs), key: key, session: session)
+                    request.httpBody = try Self.requestBody(input, uploadedImages: uploaded); request.timeoutInterval = 610
                     for attempt in 0..<input.maximumAttempts {
                         try Task.checkCancellation()
                         let (bytes, response) = try await session.bytes(for: request)

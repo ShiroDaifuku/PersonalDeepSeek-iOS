@@ -21,13 +21,19 @@ struct PendingAttachment: Identifiable, Equatable {
         let maximumDimension: CGFloat = 1_600
         let scale = min(1, maximumDimension / max(original.size.width, original.size.height))
         let size = CGSize(width: max(1, original.size.width * scale), height: max(1, original.size.height * scale))
-        let image = scale < 1 ? UIGraphicsImageRenderer(size: size).image { _ in original.draw(in: CGRect(origin: .zero, size: size)) } : original
+        // Always rasterize: normalize camera EXIF orientation, scale and alpha.
+        // JPEG bytes are now a self-contained upright RGB image on every path.
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill(); context.fill(CGRect(origin: .zero, size: size))
+            original.draw(in: CGRect(origin: .zero, size: size))
+        }
         var jpeg: Data?
         for quality in [0.82, 0.68, 0.52, 0.38] {
             jpeg = image.jpegData(compressionQuality: quality)
             if (jpeg?.count ?? .max) <= 1_200_000 { break }
         }
-        guard let jpeg else { return nil }
+        guard let jpeg, jpeg.count <= 1_200_000, UIImage(data: jpeg) != nil else { return nil }
         return PendingAttachment(name: name, mimeType: "image/jpeg", data: jpeg)
     }
 }

@@ -287,6 +287,7 @@ struct ResearchSource: Identifiable, Equatable, Sendable {
 }
 
 enum ResearchProvider: String, Codable, Sendable {
+    case deepSeek = "deepseek"
     case brave
     case bingRSS = "bing_rss"
 }

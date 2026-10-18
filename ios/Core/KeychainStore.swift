@@ -6,7 +6,9 @@ enum KeychainStore {
     private static func save(_ value: String, account: String) throws {
         let data = Data(value.utf8)
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-        SecItemDelete(query as CFDictionary)
+        let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if updated == errSecSuccess { return }
+        guard updated == errSecItemNotFound else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(updated)) }
         var add = query; add[kSecValueData as String] = data; add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(add as CFDictionary, nil); guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
     }
@@ -25,4 +27,7 @@ enum KeychainStore {
     static func saveSearchAPIKey(_ value: String) throws { try save(value, account: "web-search-api-key") }
     static func readSearchAPIKey() -> String? { read(account: "web-search-api-key") }
     static func deleteSearchAPIKey() { delete(account: "web-search-api-key") }
+    static func saveDeepSeekWebKey(_ value: String) throws { try save(value, account: "deepseek-web-api-key") }
+    static func readDeepSeekWebKey() -> String? { read(account: "deepseek-web-api-key") }
+    static func deleteDeepSeekWebKey() { delete(account: "deepseek-web-api-key") }
 }

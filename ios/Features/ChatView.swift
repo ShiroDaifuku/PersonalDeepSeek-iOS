@@ -267,6 +267,7 @@ struct ChatView: View {
             var currentTurnToolExecutionIDs: [UUID] = []
             do {
                 try Task.checkCancellation()
+                if !imageDataURLs.isEmpty { toolStatus = "正在上传并校验图片…" }
                 try await toolExecutionService.store.prepareForRun()
                 // The Profile read is an O(1) actor-cache lookup and runs alongside the single
                 // fail-open Atomic Memory retrieval. Neither personal context reaches the tool

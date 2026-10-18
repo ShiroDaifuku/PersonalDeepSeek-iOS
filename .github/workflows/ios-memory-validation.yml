@@ -15,6 +15,10 @@ on:
         description: Research contracts regression and migration only (no IPA/live API/provider benchmarks)
         type: boolean
         default: false
+      client_media_web_live:
+        description: Opt-in generated image Files API and official Search/Fetch smoke (no IPA)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -231,6 +235,36 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/memory-step3-migration.log"
 
+      - name: Opt-in client image and official web smoke
+        if: ${{ inputs.client_media_web_live == true }}
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEEPSEEK_API_KEY"
+          xctestrun="$(find "$RUNNER_TEMP/MemoryValidationDerivedData/Build/Products" -name '*.xctestrun' -type f | sed -n '1p')"
+          python3 - "$xctestrun" "$RUNNER_TEMP/memory-provider-evaluation" <<'PY'
+          import os, plistlib, sys
+          path, directory = sys.argv[1:]
+          with open(path, 'rb') as source: document = plistlib.load(source)
+          def visit(value):
+              if isinstance(value, dict):
+                  if 'TestBundlePath' in value:
+                      value.setdefault('EnvironmentVariables', {}).update({
+                          'RUN_CLIENT_MEDIA_WEB_EVALUATION': '1',
+                          'DEEPSEEK_API_KEY': os.environ['DEEPSEEK_API_KEY'],
+                          'CLIENT_SMOKE_REPORT_DIR': directory})
+                  for child in value.values(): visit(child)
+              elif isinstance(value, list):
+                  for child in value: visit(child)
+          visit(document)
+          with open(path, 'wb') as destination: plistlib.dump(document, destination)
+          PY
+          xcodebuild -xctestrun "$xctestrun" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -only-testing:PersonalDeepSeekTests/ClientImageTests/testOptInLiveCameraImageAndOfficialWeb \
+            test-without-building | tee "$RUNNER_TEMP/client-live.log"
+
       - name: Collect provider evaluation report
         if: always()
         run: |
@@ -250,6 +284,8 @@ jobs:
           cp "$RUNNER_TEMP/memory-retrieval-evaluation.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-step3-migration.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
           cp "$RUNNER_TEMP/memory-tests.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/client-live.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/memory-build.log" "$RUNNER_TEMP/memory-provider-evaluation/" 2>/dev/null || true
 
       - name: Upload provider evaluation report
         if: always()

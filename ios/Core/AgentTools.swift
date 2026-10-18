@@ -99,7 +99,7 @@ struct ReadOnlyToolExecutor: ToolExecuting {
     func execute(call: ValidatedToolCall, context: ToolExecutionContext) async throws -> ToolResultEnvelope {
         try Task.checkCancellation()
         if call.call.function.name == "web_search" {
-            let result = try await LocalResearchService().gatherWithMetadata(query: call.query, limit: min(3, call.limit))
+            let result = try await InteractiveWebService().gather(query: call.query, limit: min(3, call.limit))
             try Task.checkCancellation()
             return try ToolResultEnvelopeBuilder.webSearch(toolName: "web_search", query: call.query,
                 provider: result.providerUsed.rawValue, sources: result.sources,
