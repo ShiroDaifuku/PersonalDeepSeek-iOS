@@ -31,7 +31,7 @@ final class ClientWebServiceTests: XCTestCase {
             } else {
                 XCTAssertEqual(request.url?.path, "/v1/tools/fetch")
                 XCTAssertEqual(body["url"] as? String, "https://example.com/public")
-                payload = #"{"title":"Page","content":"# Verified public content"}"#
+                payload = ##"{"title":"Page","content":"# Verified public content"}"##
             }
             return .init(data: Data(payload.utf8), url: request.url!, statusCode: 200)
         }

@@ -104,6 +104,7 @@ struct SettingsView: View {
         .navigationTitle("设置")
         .sheet(item: $editing) { slot in CredentialEditor(slot: slot, onSaved: refreshKeys) }
         .onAppear {
+            if !["low", "high", "max"].contains(effort) { effort = "low" }
             if userID.isEmpty { userID = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") }
             refreshKeys()
         }

@@ -59,7 +59,7 @@ actor ChatImageUpload {
             guard (200..<300).contains(response.statusCode) else { throw ChatImageError.uploadFailed(response.statusCode) }
             guard data.count < 64_000, let result = try? JSONDecoder().decode(UploadResponse.self, from: data),
                   result.id.hasPrefix("file-api-"), result.id.count <= 200,
-                  result.id.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" }) else {
+                  result.id.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_") }) else {
                 throw ChatImageError.invalidUploadResponse
             }
             cache = cache.filter { $0.value.expires > Date() }

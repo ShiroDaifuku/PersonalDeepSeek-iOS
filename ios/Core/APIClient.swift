@@ -68,6 +68,9 @@ final class APIClient: Sendable, AgentModelStreaming {
         try AgentTranscriptValidator.validate(input.messages)
         let requestModel = DeepSeekModelCompatibility.requestModel(for: input.model)
         let imageCount = input.messages.reduce(0) { $0 + $1.imageDataURLs.count }
+        guard input.messages.allSatisfy({ $0.imageDataURLs.isEmpty || $0.role == "user" }) else {
+            throw ClientError.invalidConfiguration
+        }
         guard imageCount <= 6 else { throw ClientError.tooManyImages(imageCount) }
         guard imageCount == 0 || DeepSeekModelCompatibility.supportsImages(requestModel) else {
             throw ClientError.modelDoesNotSupportImages(requestModel)
