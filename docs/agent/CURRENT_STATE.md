@@ -6,6 +6,8 @@ Updated: 2026-10-18 (Asia/Hong_Kong).
 
 Latest task: mathematics teaching Steps 1–2, restricted to postgraduate entrance Mathematics I, on `codex/math-tutor-foundation` / `D:/daifuku/.worktrees/math-tutor-foundation`, based on client fix `ac634ad`. Independent local math DB and UI; ordinary chat/Memory unchanged. No IPA for this feature. See `tasks/active/MATH-001-foundation-teaching.md`. The earlier client fix IPA was separately authorized and built in run 39097581790; that authorization does not apply to the math feature.
 
+Math Steps 1–2 implementation/CI complete: verified source `8a9206f`, run `39100196621` SUCCESS, 385 ordinary tests (367 passed/18 skipped/0 failures), math ordinary 13/13, migration 1/1 and real public image/teaching smoke 1/1. No automatic mastery/extraction/recall or Step 3 implemented. Physical device acceptance and broad exercise accuracy remain pending; do not package or advance steps without the user. See `docs/MATH_TEACHING_STEP1_2_REPORT.md` for preserved failures and public response evidence.
+
 Deep Search development is paused at the accepted DS-003D2 baseline by explicit user request. Do not start DS-003D3 until the user resumes it. The active isolated client fix is `codex/client-media-web-settings` at `D:/daifuku/.worktrees/client-media-web-settings`, based on canonical 593f106. It covers camera/image transport, ordinary DeepSeek Search/Fetch and credential/settings UI. No IPA is authorized. See `tasks/active/CLIENT-001-media-web-settings.md`. Canonical source is not changed merely by testing this feature branch.
 
 ## Canonical baseline

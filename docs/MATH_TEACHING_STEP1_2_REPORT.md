@@ -1,6 +1,8 @@
 # Mathematics I — Step 1 / Step 2 implementation
 
 Date: 2026-10-18, Asia/Hong_Kong. Branch: `codex/math-tutor-foundation`.
+Status: implementation, actual Simulator build/regressions, and opt-in real API smoke PASS. Physical device acceptance and broad math accuracy remain pending.
+Verified source: `8a9206f255dc1bae1e4d87b39673e3499f705477`; later report commits do not change production source.
 Parent: `ac634ad7972e0071d7e235477a406c5571e4813c` (verified client image/web/settings fix).
 Worktree: `D:/daifuku/.worktrees/math-tutor-foundation`.
 
@@ -58,11 +60,27 @@ Windows has no Swift/Xcode runtime. Actual validation uses the existing macOS Si
 - Run 39098641949 / source `17e7f7b`: actual compile failure. `catch`'s implicit local `error` shadowed the view model's mutable `error` property in two methods. Fixed with `self.error`; failure history retained.
 - Run 39098843656 / source `194e267`: same compile failure before that fix, retained separately.
 - Run 39098921690 / source `e7d8365`: SwiftData macro initializer compile error: reading `confirmedAt` before every stored property was initialized. Fixed by a local `now` value assigned independently to both timestamps.
-- Subsequent verification results: pending; update this section from real logs, not assumptions.
+- Run [39099119018](https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/39099119018), tested source `9965daa6c0f3e951f78da2a5b40aab8cb42cbd0d`: actual Xcode 16.4 Simulator **Build for testing SUCCESS**, **385 ordinary tests: 367 passed, 18 skipped, zero failures**, eight existing Research suite guards SUCCESS, and **Validate additive Step 3 migration SUCCESS**. The strengthened ordinary Conversation/Memory fixture test is included in this source.
+- That run's overall conclusion is FAILURE: opt-in smoke's three actual model calls returned nonempty outputs with stop finish reasons, then writing `math-teaching-smoke.json` threw Cocoa error 4 because the destination directory had not been created. This is a test reporting defect, not evidence of a production math transport failure. Corrected with explicit directory creation. The smoke test itself lasted 5.826 seconds; the much longer workflow-step wait included Simulator/test launch and must not be called DeepSeek response latency. Local GitHub TLS EOF delayed log retrieval separately.
+- Final [run 39100196621](https://github.com/ShiroDaifuku/PersonalDeepSeek-iOS/actions/runs/39100196621) / source `8a9206f255dc1bae1e4d87b39673e3499f705477`: **SUCCESS**. Actual Xcode 16.4 / Swift 6.1.2 / iOS Simulator build passed. Ordinary XCTest **385 total, 367 passed, 18 opt-in skipped, zero failures**; math ordinary cases **13 passed**, one live case intentionally skipped in that ordinary invocation. Eight existing Research guards passed. Generated-old-store migration **1/1 PASS (0.436 seconds)**. Separate opt-in math real smoke **1/1 PASS (5.196 seconds)**, three actual requests, not mock responses.
+- Human review of the generated public derivative exercise: transcription preserved `Find f'(3) for f(x)=x^2`; hint gave the derivative-definition limit and one next direction without the final value; explicit full solution correctly obtained `f'(3)=6`, including a condition check. The test's confirmed statement is a deterministic fixture, not automatic acceptance of arbitrary OCR. This one simple example is not a broad curriculum benchmark. Public response evidence: `docs/evaluations/math-001/math-teaching-smoke.json`; summary: `status.json`. Full final logs/artifact were downloaded to ignored `builds/math-validation-39100196621/`.
+- Existing warnings retained: `MemorySemanticPrecisionEvaluation.swift:343` unused `test`; Widget CFBundleVersion 1 vs parent 17. Simulator multiple-destination/eligibility diagnostics and upload-action Node deprecation warnings also occurred. No Math-file or new Swift concurrency compiler warning/error was observed in the final logs; this is not a warning-free claim.
 
-Fourteen MathLearningTests are defined (13 ordinary + 1 opt-in real API). Coverage includes CRUD, restart/reload, provenance fixture cascade, original-photo ownership, invalid fields/paths/images, idempotence, 30-task concurrency, independently reopened ordinary chat/Memory fixtures, prompt bounds/modes, explicit-only requests, human confirmation, stop/empty/truncated output handling and dark/accessibility-size host mounting.
+Fourteen MathLearningTests are defined (13 ordinary + 1 opt-in real API). Coverage includes CRUD, restart/reload, provenance fixture cascade, original-photo ownership, invalid fields/paths/images, idempotence, 30-task concurrency, independently reopened ordinary chat/Memory fixtures, prompt bounds/modes, explicit-only requests, human confirmation, stop/empty/truncated output handling and dark/accessibility-size host mounting. The ordinary XCTest workflow step passed; raw logs were retrieved into the ignored builds/math-validation-39099119018 directory.
 
 The host mount test is not a full XCUITest nor a real camera/touch/VoiceOver acceptance. No real existing user database or private photo is used in tests. Model hint discipline and broad curriculum correctness need a representative reviewed Mathematics I exercise set later.
+
+## Device acceptance checklist (not executed in this Windows task)
+
+- Composer + opens the independent math sheet; closing it leaves the ordinary conversation/history unchanged.
+- Use a camera photo and a library photo. For a multi-question image, specify the desired question. Correct a deliberately misrecognized exponent/negative sign before confirming.
+- Verify the confirmation toggle resets after editing the statement, and no teaching call is possible before confirmation.
+- On a simple known derivative problem, request a hint, submit a step, request the next step, then explicitly request the full solution. Review spoiler restraint and correctness independently.
+- Check a linear algebra problem and a probability/statistics problem; manual categories must remain within the selected subject.
+- Stop a response and reopen the archive: incomplete status remains, successful earlier turns are retained. Restart the app and verify confirmed text, photo and records remain.
+- Delete one question with confirmation; unrelated questions and ordinary chat/Memory remain. Check dark mode, larger fonts, keyboard dismissal and original-photo display.
+
+These are future manual checks, not assertions that they were executed on a physical device. Large archives/pagination and broad mathematical accuracy have not been benchmarked.
 
 ## Deferred / not implemented
 

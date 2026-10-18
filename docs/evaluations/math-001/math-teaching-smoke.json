@@ -1,0 +1,7 @@
+{
+  "acceptance": "transport smoke; hint quality requires human review; not a curriculum accuracy benchmark",
+  "hint": "关键切入点：先写出导数定义式，并明确“在 $x=3$ 处”对应的是哪个极限：\n\n\\[\nf'(3)=\\lim_{h\\to 0}\\frac{f(3+h)-f(3)}{h}.\n\\]\n\n试着把它代入 $f(x)=x^2$，先化简分子，看能不能消去分母中的 $h$。你写一步给我看看？",
+  "imageOrigin": "UIKit-generated public derivative exercise",
+  "solution": "## 题目\n\n求 \\(f(x)=x^2\\) 在 \\(x=3\\) 处的导数，即求 \\(f'(3)\\)。\n\n---\n\n## 方法一：导数定义\n\n导数定义为\n\n\\[\nf'(3)=\\lim_{h\\to 0}\\frac{f(3+h)-f(3)}{h}.\n\\]\n\n代入 \\(f(x)=x^2\\)：\n\n\\[\nf(3+h)=(3+h)^2=9+6h+h^2,\n\\]\n\n\\[\nf(3)=3^2=9.\n\\]\n\n因此\n\n\\[\n\\frac{f(3+h)-f(3)}{h}\n=\\frac{(9+6h+h^2)-9}{h}\n=\\frac{6h+h^2}{h}\n=6+h \\qquad (h\\neq 0).\n\\]\n\n于是\n\n\\[\nf'(3)=\\lim_{h\\to 0}(6+h)=6.\n\\]\n\n---\n\n## 方法二：先求导函数再代值\n\n由幂函数求导公式：\n\n\\[\nf(x)=x^2 \\quad\\Rightarrow\\quad f'(x)=2x.\n\\]\n\n所以\n\n\\[\nf'(3)=2\\cdot 3=6.\n\\]\n\n---\n\n## 条件检查\n\n- \\(f(x)=x^2\\) 在 \\(x=3\\) 附近有定义；\n- 在 \\(x=3\\) 处左、右导数均存在且相等；\n- 差商化简中用到 \\(h\\neq 0\\)，而取极限正要求 \\(h\\to 0\\) 但 \\(h\\neq 0\\)，合法。\n\n---\n\n## 最终答案\n\n\\[\n\\boxed{f'(3)=6}\n\\]\n\n即曲线 \\(y=x^2\\) 在点 \\((3,9)\\) 处的切线斜率为 \\(6\\)。",
+  "transcription": "图片中唯一一道题的抄录如下（保留原题表述，不求解）：\n\n$$\n\\text{Find } f'(3) \\text{ for } f(x)=x^2.\n$$\n\n已知条件：$f(x)=x^2$。题目要求：求 $f'(3)$。"
+}
