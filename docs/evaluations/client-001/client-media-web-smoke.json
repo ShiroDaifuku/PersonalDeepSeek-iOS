@@ -1,0 +1,10 @@
+{
+  "imageAnswer" : "742",
+  "imageTransport" : "Files API file_id; one-hour expiry",
+  "provider" : "deepseek",
+  "sourceCount" : 1,
+  "sourceURLs" : [
+    "https:\/\/api-docs.deepseek.com\/updates"
+  ],
+  "successfulFetchCount" : 1
+}

@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-18",
+  "timezone": "Asia/Hong_Kong",
+  "baseline": "593f106f69e44e170d00fdcaf08b43df0b3488f4",
+  "testedSource": "f17143c8bb208e050eac237e3bfcefba1c3f2877",
+  "branch": "codex/client-media-web-settings",
+  "runID": 39084088088,
+  "ciConclusion": "success",
+  "ordinary": {"total": 371, "passed": 354, "skipped": 17, "failures": 0},
+  "generatedStoreMigration": {"passed": 1, "failures": 0},
+  "liveGeneratedImageAndOfficialWeb": {"passed": 1, "failures": 0},
+  "deepSearchDevelopment": "paused; existing contract regression only",
+  "imageTransport": "Files API with requested and validated one-hour expiry",
+  "originalPrivatePhotoTested": false,
+  "deviceSettingsUITested": false,
+  "apiKeysInReport": false,
+  "schemaChanges": false,
+  "backendChanges": false,
+  "canonicalOrMainMerged": false,
+  "ipaGenerated": false
+}
