@@ -62,11 +62,29 @@ import WebKit
         XCTAssertEqual(object["events"] as? Int, 0); XCTAssertEqual(object["bad"] as? Bool, false)
         XCTAssertEqual(object["quote"] as? Int, 1); XCTAssertEqual(object["code"] as? String, "<b>code</b>")
     }
-    func testMathJaxGeneratedLinksAreAlsoFiltered() async throws {
+    func testPostTypesettingSVGLinksAreAlsoFiltered() async throws {
         let web = try await page()
         defer { web.configuration.userContentController.removeAllScriptMessageHandlers() }
-        try await render("$$\\href{javascript:alert(1)}{x}$$\n\n> 引用", in: web)
-        let result = try await js("String(Array.from(document.querySelectorAll('#content a')).some(a=>/javascript:/i.test((a.getAttribute('href')||'')+(a.getAttribute('xlink:href')||''))))", in: web)
-        XCTAssertEqual(result, "false")
+        // The shipped bundle does not include the optional html.js/\href extension.
+        // After real basic typesetting, inject extension-shaped SVG anchors to verify
+        // the production post-typesetting filter (not an unsupported macro/network load).
+        _ = try await js("""
+        const actualTypeset=MathJax.typesetPromise.bind(MathJax);
+        MathJax.typesetPromise=async elements=>{
+          await actualTypeset(elements);
+          const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+          const bad=document.createElementNS('http://www.w3.org/2000/svg','a');bad.id='bad-svg';
+          bad.setAttributeNS('http://www.w3.org/1999/xlink','xlink:href','javascript:alert(1)');svg.appendChild(bad);
+          const good=document.createElementNS('http://www.w3.org/2000/svg','a');good.id='good-svg';
+          good.setAttributeNS('http://www.w3.org/1999/xlink','xlink:href','https://example.com/math');svg.appendChild(good);
+          document.getElementById('content').appendChild(svg);
+        };'installed'
+        """, in: web)
+        try await render("$$x^2$$\n\n> 引用", in: web)
+        let result = try await js("JSON.stringify({bad:document.getElementById('bad-svg').hasAttribute('xlink:href'),badNS:document.getElementById('bad-svg').hasAttributeNS('http://www.w3.org/1999/xlink','href'),good:document.getElementById('good-svg').getAttribute('xlink:href'),math:document.querySelectorAll('mjx-container').length})", in: web)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any])
+        XCTAssertEqual(object["bad"] as? Bool, false); XCTAssertEqual(object["badNS"] as? Bool, false)
+        XCTAssertEqual(object["good"] as? String, "https://example.com/math")
+        XCTAssertEqual(object["math"] as? Int, 1)
     }
 }
