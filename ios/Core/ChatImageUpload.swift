@@ -59,12 +59,15 @@ actor ChatImageUpload {
             guard (200..<300).contains(response.statusCode) else { throw ChatImageError.uploadFailed(response.statusCode) }
             guard data.count < 64_000, let result = try? JSONDecoder().decode(UploadResponse.self, from: data),
                   result.id.hasPrefix("file-api-"), result.id.count <= 200,
+                  result.expires_at > Date().timeIntervalSince1970,
+                  result.expires_at <= Date().addingTimeInterval(3720).timeIntervalSince1970,
                   result.id.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_") }) else {
                 throw ChatImageError.invalidUploadResponse
             }
+            if let size = result.bytes, size != image.data.count { throw ChatImageError.invalidUploadResponse }
             cache = cache.filter { $0.value.expires > Date() }
             if cache.count >= 12 { cache.removeAll() }
-            cache[identity] = .init(fileID: result.id, expires: Date().addingTimeInterval(3300))
+            cache[identity] = .init(fileID: result.id, expires: min(Date().addingTimeInterval(3300), Date(timeIntervalSince1970: result.expires_at - 60)))
             mapped[url] = result.id
         }
         return mapped
@@ -81,5 +84,5 @@ actor ChatImageUpload {
         body.append(data); append("\r\n--\(boundary)--\r\n")
         return body
     }
-    private struct UploadResponse: Decodable { let id: String }
+    private struct UploadResponse: Decodable { let id: String; let expires_at: TimeInterval; let bytes: Int? }
 }

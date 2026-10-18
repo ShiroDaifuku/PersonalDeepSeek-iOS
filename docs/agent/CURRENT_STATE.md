@@ -1,6 +1,10 @@
 # Current engineering state
 
-Updated: 2026-10-04 (Asia/Hong_Kong).
+Updated: 2026-10-18 (Asia/Hong_Kong).
+
+## User priority override — 2026-10-18
+
+Deep Search development is paused at the accepted DS-003D2 baseline by explicit user request. Do not start DS-003D3 until the user resumes it. The active isolated client fix is `codex/client-media-web-settings` at `D:/daifuku/.worktrees/client-media-web-settings`, based on canonical 593f106. It covers camera/image transport, ordinary DeepSeek Search/Fetch and credential/settings UI. No IPA is authorized. See `tasks/active/CLIENT-001-media-web-settings.md`. Canonical source is not changed merely by testing this feature branch.
 
 ## Canonical baseline
 

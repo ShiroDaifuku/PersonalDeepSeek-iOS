@@ -124,6 +124,7 @@ struct SettingsView: View {
         }
     }
     private func refreshKeys() {
+        connectionStatus = nil
         chatMask = ClientCredentials.masked(KeychainStore.readAPIKey())
         webMask = ClientCredentials.masked(KeychainStore.readDeepSeekWebKey())
         cloudMask = ClientCredentials.masked(KeychainStore.readCloudServiceToken())

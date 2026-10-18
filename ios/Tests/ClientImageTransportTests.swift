@@ -14,7 +14,7 @@ private final class ImageHTTPState: @unchecked Sendable {
     func response(_ request: URLRequest) -> (Int, Data, String) {
         lock.lock(); defer { lock.unlock() }; requests.append(request)
         if request.url?.path == "/files" {
-            let data = try! JSONSerialization.data(withJSONObject: ["id": fileID])
+            let data = try! JSONSerialization.data(withJSONObject: ["id": fileID, "expires_at": Date().addingTimeInterval(3600).timeIntervalSince1970])
             return (uploadStatus, data, "application/json")
         }
         let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"742\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"

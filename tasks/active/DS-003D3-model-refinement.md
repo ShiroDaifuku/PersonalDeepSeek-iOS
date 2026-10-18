@@ -1,5 +1,7 @@
 # DS-003D3 shared model refinement adapter (planned)
 
+Paused by explicit user request on 2026-10-18. Do not implement or wire into Chat while CLIENT-001 is active; resume requires user direction.
+
 - Dependency: accepted DS-003D2 controlled iterative collection; dedicated branch/worktree from canonical feature/tool-research-integration.
 - Goal: produce bounded gap-target refinement drafts through existing APIClient/SSE transport, then use the host proposal/iteration contracts.
 - Status: planned; DS-003D2 establishes deterministic controlled execution only. DS-003 remains partially complete until this separately reviewed adapter gate.

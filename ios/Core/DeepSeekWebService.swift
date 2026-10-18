@@ -77,6 +77,7 @@ struct DeepSeekWebService: Sendable {
                 sources.append(row)
             } catch { sources.append(row) }
         }
+        try Task.checkCancellation()
         return .init(providerUsed: .deepSeek, sources: sources)
     }
 

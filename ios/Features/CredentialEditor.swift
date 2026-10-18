@@ -84,7 +84,7 @@ struct CredentialEditor: View {
             .alert("删除\(slot.title)？", isPresented: $confirmDelete) {
                 Button("删除", role: .destructive) { slot.delete(); onSaved(); dismiss() }
                 Button("取消", role: .cancel) { }
-            } message: { Text("仅删除本机保存的凭据，不会撤销服务端 Key。删除独立网页 Key 后可启用复用聊天 Key。") }
+            } message: { Text(slot == .deepSeekWeb ? "仅删除本机凭据，不撤销服务端 Key。删除后可开启复用聊天 Key。" : "仅删除本机凭据，不会撤销服务端 Key 或令牌。下一次调用需要重新配置。") }
         }
     }
 }
