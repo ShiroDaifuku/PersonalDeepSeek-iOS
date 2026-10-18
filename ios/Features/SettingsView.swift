@@ -82,6 +82,16 @@ struct SettingsView: View {
                 }.disabled(cloudMask == "未设置")
                 if let notificationStatus { Text(notificationStatus).font(.caption).foregroundStyle(.secondary) }
             }
+            Section("凭据总览") {
+                DisclosureGroup("查看全部已保存凭据") {
+                    credentialRow(.chat, mask: chatMask, detail: "聊天、图片与记忆使用")
+                    credentialRow(.deepSeekWeb, mask: webMask,
+                        detail: webProvider == "deepSeek" && !reuseChatKey ? "当前网页使用" : "独立网页 Key · 备用")
+                    credentialRow(.brave, mask: braveMask,
+                        detail: webProvider == "brave" ? "当前搜索服务使用" : "Brave Key · 备用")
+                    credentialRow(.cloud, mask: cloudMask, detail: "云端任务使用 · 非 DeepSeek Key")
+                }
+            }
             Section("本地记忆") {
                 NavigationLink("历史对话记忆导入") { HistoricalMemoryImportView(model: memoryImport) }
                 Text("记忆保存在本机；导入和提取会调用 DeepSeek。不会自动同步整个聊天库。")

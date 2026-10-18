@@ -87,6 +87,16 @@ final class ClientWebServiceTests: XCTestCase {
         let count = await log.all().count; XCTAssertEqual(count, 1)
     }
 
+    func testFetchPaymentFailureIsNotHiddenAsSuccessfulGather() async {
+        let fetcher = ClientWebHTTP { request in
+            let search = request.url?.path == "/v1/tools/search"
+            let data = search ? Data(#"{"results":[{"title":"Public","url":"https://example.com/","snippet":"short"}]}"#.utf8) : Data("{}".utf8)
+            return .init(data: data, url: request.url!, statusCode: search ? 200 : 402)
+        }
+        do { _ = try await DeepSeekWebService(key: { "fixture" }, fetcher: fetcher).gather(query: "public"); XCTFail() }
+        catch { XCTAssertEqual(error as? DeepSeekWebError, .http(402)) }
+    }
+
     func testInvalidSchemaAndUnsafeURLsAreRejected() async throws {
         let malformed = ClientWebHTTP { request in .init(data: Data("not json".utf8), url: request.url!, statusCode: 200) }
         do { _ = try await DeepSeekWebService(key: { "fixture" }, fetcher: malformed).search(query: "public"); XCTFail() }

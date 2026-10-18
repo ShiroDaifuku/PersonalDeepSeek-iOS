@@ -73,7 +73,7 @@ struct DeepSeekWebService: Sendable {
             catch is CancellationError { throw CancellationError() }
             catch let error as DeepSeekWebError {
                 // Authentication/quota failures must not masquerade as success.
-                if case .http(let status) = error, [401, 403, 429].contains(status) { throw error }
+                if case .http(let status) = error, [401, 402, 403, 429].contains(status) { throw error }
                 sources.append(row)
             } catch { sources.append(row) }
         }
