@@ -8,7 +8,7 @@ import XCTest
         for text in ["如果把这道题改成考研数学一的试题，会怎么改？", "把函数改成分段函数", "把这段话改成英文", "把界面改成深色"] {
             XCTAssertNil(AssistantIntentRouter.preferredTool(for: text), text)
         }
-        for text in ["把任务改成每天十点", "把之前的提醒改成晚上九点", "暂停任务", "恢复任务", "edit task", "reschedule my reminder"] {
+        for text in ["把任务改成每天十点", "把任务延后半小时", "把之前的提醒改成晚上九点", "暂停任务", "恢复任务", "edit task", "reschedule my reminder"] {
             XCTAssertEqual(AssistantIntentRouter.preferredTool(for: text), "edit_scheduled_task", text)
         }
         XCTAssertEqual(AssistantIntentRouter.preferredTool(for: "明天提醒我复习"), "create_scheduled_task")
