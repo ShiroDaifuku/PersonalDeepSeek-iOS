@@ -64,12 +64,12 @@ import SwiftUI
     func recognize() {
         guard !busy, !saving, !importing, current == nil, let photo else { return }
         do { start(messages: try MathTutorPrompt.recognition(target: target, image: photo.dataURL), problem: nil, requestWork: "", requestMode: .hint) }
-        catch { error = error.localizedDescription }
+        catch { self.error = error.localizedDescription }
     }
     func teach() {
         guard !busy, !saving, !importing, let current else { return }
         do { start(messages: try MathTutorPrompt.teaching(problem: current, mode: mode, work: work), problem: current, requestWork: work, requestMode: mode) }
-        catch { error = error.localizedDescription }
+        catch { self.error = error.localizedDescription }
     }
     func stop() { generation?.cancel(); photoLoad?.cancel() }
 
