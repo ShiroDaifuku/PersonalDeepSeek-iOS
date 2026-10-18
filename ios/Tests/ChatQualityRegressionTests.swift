@@ -87,10 +87,11 @@ import XCTest
         let oldStart = clock.now
         for chunk in chunks { full += chunk; baselineCount = full.count; oldScanned += full.utf8.count }
         let oldDuration = oldStart.duration(to: clock.now)
-        var counter = StreamingCharacterCount()
+        var counter = StreamingCharacterCount(), newFull = ""
         let newStart = clock.now
-        for chunk in chunks { counter.append(chunk) }
+        for chunk in chunks { newFull += chunk; counter.append(chunk) }
         let newDuration = newStart.duration(to: clock.now)
+        XCTAssertEqual(newFull, full)
         XCTAssertEqual(counter.count, baselineCount)
         XCTAssertLessThan(counter.scannedUTF8Bytes * 100, oldScanned)
         // Timing is evidence, not a fragile CI speed-ratio assertion.
