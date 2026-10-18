@@ -69,13 +69,18 @@ actor MathLearningService {
         guard name == "\(problem.id.uuidString).jpg" else { throw MathStudyError.invalidPhoto }
         return try Data(contentsOf: directory.appendingPathComponent(name))
     }
-    func delete(_ problem: MathProblemSnapshot) async throws {
+    @discardableResult
+    func delete(_ problem: MathProblemSnapshot) async throws -> String? {
         // DB first: never delete the photo while the DB still points to a live problem.
         try await store.delete(id: problem.id)
         if let name = problem.photoFilename, name == "\(problem.id.uuidString).jpg" {
             let path = directory.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
+            if FileManager.default.fileExists(atPath: path.path) {
+                do { try FileManager.default.removeItem(at: path) }
+                catch { return "题目及教学记录已删除，但原图清理失败：\(error.localizedDescription)" }
+            }
         }
+        return nil
     }
 }
 

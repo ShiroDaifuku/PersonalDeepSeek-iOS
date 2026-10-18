@@ -15,7 +15,7 @@ struct MathTutorHost: View {
                 else if let loadError { ContentUnavailableView("数学档案无法打开", systemImage: "exclamationmark.triangle", description: Text(loadError)) }
                 else { ProgressView("正在打开数学档案…") }
             }
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("关闭") { model?.stop(); dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("关闭") { model?.stop(); dismiss() }.disabled(model?.saving == true || model?.importing == true) } }
         }
         .interactiveDismissDisabled(model?.busy == true || model?.saving == true || model?.importing == true)
         .task {

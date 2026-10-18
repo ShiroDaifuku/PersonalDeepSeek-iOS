@@ -19,6 +19,10 @@ on:
         description: Opt-in generated image Files API and official Search/Fetch smoke (no IPA)
         type: boolean
         default: false
+      math_teaching_live:
+        description: Opt-in generated public math image and teaching smoke (no IPA)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -235,10 +239,12 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/memory-step3-migration.log"
 
-      - name: Opt-in client image and official web smoke
-        if: ${{ inputs.client_media_web_live == true }}
+      - name: Opt-in client image, official web or math teaching smoke
+        if: ${{ inputs.client_media_web_live == true || inputs.math_teaching_live == true }}
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CLIENT_LIVE: ${{ inputs.client_media_web_live && '1' || '0' }}
+          MATH_LIVE: ${{ inputs.math_teaching_live && '1' || '0' }}
         run: |
           set -euo pipefail
           test -n "$DEEPSEEK_API_KEY"
@@ -251,7 +257,8 @@ jobs:
               if isinstance(value, dict):
                   if 'TestBundlePath' in value:
                       value.setdefault('EnvironmentVariables', {}).update({
-                          'RUN_CLIENT_MEDIA_WEB_EVALUATION': '1',
+                          'RUN_CLIENT_MEDIA_WEB_EVALUATION': os.environ['CLIENT_LIVE'],
+                          'RUN_MATH_TEACHING_EVALUATION': os.environ['MATH_LIVE'],
                           'DEEPSEEK_API_KEY': os.environ['DEEPSEEK_API_KEY'],
                           'CLIENT_SMOKE_REPORT_DIR': directory})
                   for child in value.values(): visit(child)
@@ -260,9 +267,16 @@ jobs:
           visit(document)
           with open(path, 'wb') as destination: plistlib.dump(document, destination)
           PY
+          tests=()
+          if [[ "$CLIENT_LIVE" == "1" ]]; then
+            tests+=("-only-testing:PersonalDeepSeekTests/ClientImageTests/testOptInLiveCameraImageAndOfficialWeb")
+          fi
+          if [[ "$MATH_LIVE" == "1" ]]; then
+            tests+=("-only-testing:PersonalDeepSeekTests/MathLearningTests/testOptInLiveMathematicsPhotoAndTeaching")
+          fi
           xcodebuild -xctestrun "$xctestrun" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -only-testing:PersonalDeepSeekTests/ClientImageTests/testOptInLiveCameraImageAndOfficialWeb \
+            "${tests[@]}" \
             test-without-building | tee "$RUNNER_TEMP/client-live.log"
 
       - name: Collect provider evaluation report

@@ -49,7 +49,7 @@ import SwiftUI
     func acceptPhoto(_ data: Data) {
         guard !busy, !saving, current == nil else { return }
         guard let value = PendingAttachment.image(data: data) else { error = "图片解码或压缩失败，请重新选择。"; return }
-        photo = value; reviewed = false
+        photo = value; reviewed = false; error = nil
     }
     func confirm() async {
         guard !busy, !saving, !importing, current == nil, reviewed else { return }
@@ -120,9 +120,10 @@ import SwiftUI
         guard !busy, !saving, !importing else { return }
         saving = true
         do {
-            try await service.delete(problem)
+            let cleanupWarning = try await service.delete(problem)
             if current?.id == problem.id { current = nil; statement = ""; photo = nil; reviewed = false; output = ""; work = "" }
             await refresh()
+            if let cleanupWarning { error = cleanupWarning }
         } catch { self.error = "删除失败：\(error.localizedDescription)" }
         saving = false
     }

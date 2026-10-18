@@ -1,6 +1,7 @@
 import XCTest
 import SwiftData
 import SwiftUI
+import UIKit
 @testable import PersonalDeepSeek
 
 private final class MathTestModel: AgentModelStreaming, @unchecked Sendable {
@@ -238,5 +239,34 @@ private final class MathTestModel: AgentModelStreaming, @unchecked Sendable {
         let host = UIHostingController(rootView: NavigationStack { MathTutorView(model: model) }.environment(\.colorScheme, .dark).environment(\.dynamicTypeSize, .accessibility2))
         host.loadViewIfNeeded(); host.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844); host.view.layoutIfNeeded()
         XCTAssertNotNil(host.view)
+    }
+    func testOptInLiveMathematicsPhotoAndTeaching() async throws {
+        guard ProcessInfo.processInfo.environment["RUN_MATH_TEACHING_EVALUATION"] == "1" else { throw XCTSkip("Opt-in real API smoke") }
+        let key = try XCTUnwrap(ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"])
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 900, height: 240)).jpegData(withCompressionQuality: 0.85) { context in
+            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 900, height: 240))
+            ("Find f'(3) for f(x) = x^2." as NSString).draw(at: CGPoint(x: 35, y: 85), withAttributes: [.font: UIFont.systemFont(ofSize: 45), .foregroundColor: UIColor.black])
+        }
+        let normalized = try XCTUnwrap(PendingAttachment.image(data: image))
+        let client = MathTutorClient(model: APIClient(apiKey: key))
+        func collect(_ messages: [APIMessage]) async throws -> String {
+            var output = ""
+            for try await delta in client.stream(messages) {
+                if case .content(let text) = delta { output += text }
+                if case .finishReason(let reason) = delta { XCTAssertEqual(reason, "stop") }
+            }
+            XCTAssertFalse(output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            return output
+        }
+        let transcription = try await collect(MathTutorPrompt.recognition(target: "图片中唯一的一道题，只抄录题目，不解答", image: normalized.dataURL))
+        // Deterministic fixture confirmation: not a claim that arbitrary OCR is automatically correct.
+        let problem = MathProblemSnapshot(id: UUID(), statement: "求 f(x)=x^2 在 x=3 处的导数。", subject: .calculus, topicID: "calc.derivatives", photoFilename: nil, createdAt: Date(), attempts: [])
+        let hint = try await collect(MathTutorPrompt.teaching(problem: problem, mode: .hint, work: "我不知道从哪里开始"))
+        let solution = try await collect(MathTutorPrompt.teaching(problem: problem, mode: .solution, work: "请完整解答"))
+        if let root = ProcessInfo.processInfo.environment["CLIENT_SMOKE_REPORT_DIR"] {
+            let report: [String: String] = ["imageOrigin": "UIKit-generated public derivative exercise", "transcription": transcription,
+                "hint": hint, "solution": solution, "acceptance": "transport smoke; hint quality requires human review; not a curriculum accuracy benchmark"]
+            try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: root).appendingPathComponent("math-teaching-smoke.json"), options: .atomic)
+        }
     }
 }
