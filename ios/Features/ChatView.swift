@@ -89,7 +89,7 @@ struct ChatView: View {
             .task(id: scenePhase) { if scenePhase == .active { await recoverCloudChats() } }
             .onChange(of: current?.id) { _, _ in requestScrollToBottom() }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background, isStreaming, let current { LiveActivityManager.shared.start(title: current.title, kind: "generation", detail: toolStatus ?? "正在生成回答") }
+                if phase == .background, isStreaming, activeCloudID == nil, let current { LiveActivityManager.shared.start(title: current.title, kind: "generation", detail: toolStatus ?? "正在生成回答") }
             }
             .onReceive(NotificationCenter.default.publisher(for: .deepSeekNotificationRoute)) { _ in openPendingConversationIfNeeded() }
     }
@@ -100,12 +100,13 @@ struct ChatView: View {
                 if let id = recoveredCloudConversationID {
                     Button("上次提问已完成 · 查看回答") {
                         if let value = conversations.first(where: { $0.id == id }) { current = value }
+                        requestScrollToBottom()
                         recoveredCloudConversationID = nil
                     }.padding(8).frame(maxWidth: .infinity).background(.thinMaterial)
                 }
                 if !isStreaming, let id = current?.id, pendingCloudConversations.contains(id) {
                     HStack {
-                        Text("云端生成中 · 可退出后回来查看").font(.caption)
+                        Text("云端请求待完成 · 退出后可恢复").font(.caption)
                         Spacer()
                         Button("取消", role: .destructive) { Task { await cancelPendingCloudConversation(id) } }
                     }.padding(8).background(.thinMaterial)
@@ -307,6 +308,7 @@ struct ChatView: View {
         streamingReasoningPreview = ""; streamingReasoningCount = 0; streamingContent = ""; scrollRequest &+= 1
         toolStatus = preferredTool == "web_search" || preferredTool == "search_local_knowledge" ? "正在处理…" :
             (selectedManualTool.map { "正在准备\($0.title)…" } ?? (preferredTool == nil ? "正在连接模型…" : "正在准备所需工具…"))
+        if cloudTicket != nil { toolStatus = "正在准备并提交云端请求…" }
         if conversation.title == "新对话" { conversation.title = String(displayText.prefix(24)) }
         let frozenSystem = conversation.systemPrompt
         let planningMessages = MessagePrefix.stable(system: frozenSystem, history: history, newUserText: requestText, imageDataURLs: imageDataURLs)
@@ -571,8 +573,12 @@ struct ChatView: View {
                         try Task.checkCancellation()
                         var forceRender = false
                         switch event {
-                        case .reasoningDelta(let value): pendingReasoning += value
-                        case .contentDelta(let value): pendingContent += value
+                        case .reasoningDelta(let value):
+                            pendingReasoning += value
+                            if cloudTicket != nil { toolStatus = "云端正在生成，退出后可恢复" }
+                        case .contentDelta(let value):
+                            pendingContent += value
+                            if cloudTicket != nil { toolStatus = "云端正在返回回答" }
                         case .finalAnswer: forceRender = true
                         case .toolExecutionStarted(_, let name): toolStatus = name == "web_search" ? "正在搜索网页…" : "正在查询本地资料…"
                         case .toolExecutionCompleted: toolStatus = "工具执行完成，正在整理回答…"
@@ -689,10 +695,11 @@ struct ChatView: View {
                         try await CloudChatOutbox.shared.remove(ticket.id); continue
                     }
                     guard let user = conversation.messages.first(where: { $0.id == ticket.userMessageID && $0.role == "user" }),
-                          let assistant = conversation.messages.first(where: { $0.id == ticket.assistantMessageID && $0.role == "assistant" }) else { throw CloudChatError.conflict }
+                          let assistant = conversation.messages.first(where: { $0.id == ticket.assistantMessageID && $0.role == "assistant" }),
+                          user.content == ticket.userText else { throw CloudChatError.conflict }
                     let result: CloudChatSnapshot
                     do { result = try await CloudChatAPI(ticket: ticket).recover() }
-                    catch CloudChatError.remote(let code) where ["cancelled_before_acceptance", "chat_expired", "chat_conflict"].contains(code) {
+                    catch CloudChatError.remote(let code) where ["cancelled_before_acceptance", "chat_expired", "chat_conflict", "invalid_chat", "unsupported_chat", "chat_too_large", "chat_quota"].contains(code) {
                         errorText = "上次云端任务已终止：\(code)。未触发长期记忆处理。"
                         try await CloudChatOutbox.shared.remove(ticket.id); pendingCloudConversations.remove(ticket.conversationID); continue
                     }
@@ -707,7 +714,7 @@ struct ChatView: View {
                                 assistantMessageID: assistant.id, assistantText: assistant.content) {
                                 Task { _ = await memoryService.processCompletedTurn(turn) }
                             }
-                        } else { errorText = "上次云端回答未完成：\(result.errorCode ?? result.status)；不会计入完整回答或长期记忆。" }
+                        } else { errorText = cancelled ? "云端请求已取消；保留已收到内容，不计入长期记忆。" : "上次云端回答未完成：\(result.errorCode ?? result.status)；不会计入完整回答或长期记忆。" }
                         try await CloudChatOutbox.shared.remove(ticket.id)
                         pendingCloudConversations.remove(ticket.conversationID)
                     }

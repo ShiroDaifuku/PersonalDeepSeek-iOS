@@ -155,8 +155,12 @@ struct CloudChatModel: AgentModelStreaming {
 
     static func prepared(_ ticket: CloudChatTicket, request: AgentModelRequest) throws -> CloudChatTicket {
         guard request.toolNames.isEmpty, request.messages.allSatisfy({ $0.imageDataURLs.isEmpty && $0.toolCalls == nil && $0.toolCallID == nil }),
+              (1...200).contains(request.messages.count), request.messages.last?.role == "user",
+              request.messages.allSatisfy({ ["system", "user", "assistant"].contains($0.role) && $0.reasoningContent == nil }),
               [DeepSeekModelCompatibility.flash, DeepSeekModelCompatibility.pro].contains(DeepSeekModelCompatibility.requestModel(for: request.model)) else { throw CloudChatError.unsupported }
-        let input = try JSONSerialization.jsonObject(with: APIClient.requestBody(request))
+        let wire = try APIClient.requestBody(request)
+        guard wire.count <= 900_000 else { throw CloudChatError.unsupported }
+        let input = try JSONSerialization.jsonObject(with: wire)
         var value = ticket
         value.requestData = try JSONSerialization.data(withJSONObject: ["id":ticket.id.uuidString,
             "conversationID":ticket.conversationID.uuidString, "userMessageID":ticket.userMessageID.uuidString,

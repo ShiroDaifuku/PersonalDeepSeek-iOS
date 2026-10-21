@@ -32,6 +32,12 @@ final class CloudChatTests: XCTestCase {
         let image = AgentModelRequest(messages: [.init(role: "user", content: "image", imageDataURLs: ["data:image/jpeg;base64,test"])],
             model: DeepSeekModelCompatibility.flash, thinking: false, reasoningEffort: "low", toolNames: [], toolChoice: .auto)
         XCTAssertThrowsError(try CloudChatModel.prepared(t, request: image))
+        let oversized = AgentModelRequest(messages: [.init(role: "user", content: String(repeating: "x", count: 900001))],
+            model: DeepSeekModelCompatibility.flash, thinking: false, reasoningEffort: "low", toolNames: [], toolChoice: .auto)
+        XCTAssertThrowsError(try CloudChatModel.prepared(t, request: oversized))
+        let tooMany = AgentModelRequest(messages: Array(repeating: .init(role: "user", content: "q"), count: 201),
+            model: DeepSeekModelCompatibility.flash, thinking: false, reasoningEffort: "low", toolNames: [], toolChoice: .auto)
+        XCTAssertThrowsError(try CloudChatModel.prepared(t, request: tooMany))
     }
     func testOutboxReloadAndStopBeforeInsertRaceAreDurable() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-outbox-\(UUID())")
