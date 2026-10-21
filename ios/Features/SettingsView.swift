@@ -9,6 +9,8 @@ struct SettingsView: View {
     @AppStorage("opaqueUserID") private var userID = ""
     @AppStorage("interactiveWebProvider") private var webProvider = WebSearchProviderChoice.deepSeek.rawValue
     @AppStorage("deepSeekWebUsesChatKey") private var reuseChatKey = true
+    @AppStorage("cloudChatEnabled") private var cloudChatEnabled = false
+    @State private var confirmingCloudChat = false
     @State private var editing: CredentialSlot?
     @State private var chatMask = "未设置"
     @State private var webMask = "未设置"
@@ -28,7 +30,7 @@ struct SettingsView: View {
             Section {
                 Label("个人测试版", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.headline)
-                Text("聊天和图片直接连接 DeepSeek；后台定时任务单独使用云端服务。")
+                Text("默认聊天和图片直连 DeepSeek。可另行启用纯文本云端续跑；定时任务独立执行。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("聊天与图片") {
@@ -65,6 +67,18 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("云端任务") {
+                Toggle("纯文本回答云端续跑（测试）", isOn: Binding(get: { cloudChatEnabled }, set: { value in
+                    if value { confirmingCloudChat = true } else { cloudChatEnabled = false }
+                }))
+                if cloudChatEnabled {
+                    Text("使用服务器保存的 DeepSeek Key，不使用或上传手机聊天 Key。只支持无附件、无工具调用的纯文本；需要搜索、知识库、图片或定时任务时请先关闭此开关。提交成功后可强制退出，重开后恢复到原会话；结果保留 7 天。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("云端续跑部署身份") {
+                    LabeledContent("CHAT_USER_ID", value: userID).textSelection(.enabled)
+                    Text("服务器必须显式配置为同一个 ID，并应用新增任务表和队列；旧版后端不支持此开关。未部署前请保持关闭。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 DisclosureGroup("服务地址与访问令牌", isExpanded: $cloudExpanded) {
                     TextField("HTTPS 服务地址", text: $cloudServiceURL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
@@ -72,7 +86,7 @@ struct SettingsView: View {
                     Button(checking ? "正在连接…" : "测试任务服务") { testCloudService() }.disabled(checking)
                     if let connectionStatus { Text(connectionStatus).font(.caption).foregroundStyle(.secondary) }
                 }
-                Text("仅用于定时任务、历史及推送。知识库只有明确选择并主动同步后才会上云。")
+                Text("用于定时任务、历史、推送及自选的纯文本续跑。知识库只有明确选择并主动同步后才会上云。")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("申请任务推送权限") {
                     Task {
@@ -113,6 +127,12 @@ struct SettingsView: View {
         }
         .navigationTitle("设置")
         .sheet(item: $editing) { slot in CredentialEditor(slot: slot, onSaved: refreshKeys) }
+        .alert("启用纯文本云端续跑？", isPresented: $confirmingCloudChat) {
+            Button("取消", role: .cancel) { }
+            Button("同意并启用") { cloudChatEnabled = true }
+        } message: {
+            Text("每轮组装好的当前对话上下文（可能含相关长期记忆和画像）将发送并暂存于你配置的 Cloudflare 后端，使用服务器 Key 调用 DeepSeek。手机 Key 不上传。请求完成后删除云端输入，结果最长保留 7 天。图片和工具流程暂不支持。关闭开关只影响后续提问，不会取消已提交任务。")
+        }
         .onAppear {
             if !["low", "high", "max"].contains(effort) { effort = "low" }
             if userID.isEmpty { userID = "ios_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") }

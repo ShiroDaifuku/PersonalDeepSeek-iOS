@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
+# Cloud chat V1 is inactive until this owner is explicitly configured and migration 0003 applied.
+# CHAT_USER_ID must equal the personal app's opaque user ID; never accept arbitrary client owners.
+# [vars] below intentionally does not preset CHAT_USER_ID.
+
 [triggers]
 crons = ["* * * * *"]
 
@@ -22,6 +26,16 @@ max_batch_size = 5
 max_batch_timeout = 5
 max_retries = 5
 dead_letter_queue = "personal-deepseek-task-runs-dlq"
+
+[[queues.producers]]
+binding = "CHAT_QUEUE"
+queue = "personal-deepseek-chat-runs"
+
+[[queues.consumers]]
+queue = "personal-deepseek-chat-runs"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 0
 
 [vars]
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"

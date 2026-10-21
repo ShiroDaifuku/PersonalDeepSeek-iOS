@@ -23,6 +23,11 @@ struct ChatView: View {
     @AppStorage("reasoningEffort") private var effort = "high"
     @AppStorage("cloudServiceURL") private var cloudServiceURL = CloudServiceDefaults.baseURL
     @AppStorage("opaqueUserID") private var userID = ""
+    @AppStorage("cloudChatEnabled") private var cloudChatEnabled = false
+    @State private var activeCloudID: UUID?
+    @State private var recoveredCloudConversationID: UUID?
+    @State private var cloudRecoveryBusy = false
+    @State private var pendingCloudConversations: Set<UUID> = []
     @State private var current: Conversation?
     @State private var input = ""
     @State private var isStreaming = false
@@ -81,6 +86,7 @@ struct ChatView: View {
     private var lifecycleChat: some View {
         navigationChat
             .onAppear { initializeConversationIfNeeded() }
+            .task(id: scenePhase) { if scenePhase == .active { await recoverCloudChats() } }
             .onChange(of: current?.id) { _, _ in requestScrollToBottom() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background, isStreaming, let current { LiveActivityManager.shared.start(title: current.title, kind: "generation", detail: toolStatus ?? "正在生成回答") }
@@ -90,6 +96,14 @@ struct ChatView: View {
 
     private var navigationChat: some View {
         chatLayout
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let id = recoveredCloudConversationID {
+                    Button("上次提问已完成 · 查看回答") {
+                        if let value = conversations.first(where: { $0.id == id }) { current = value }
+                        recoveredCloudConversationID = nil
+                    }.padding(8).frame(maxWidth: .infinity).background(.thinMaterial)
+                }
+            }
             .navigationTitle(current?.title ?? "DeepSeek").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button { composerFocused = false; withAnimation(.easeOut(duration: 0.2)) { showingConversations.toggle() } } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("展开对话侧栏") }
@@ -236,6 +250,9 @@ struct ChatView: View {
 
     private func send() {
         guard !isStreaming, !isLoadingAttachments else { return }
+        if let id = current?.id, pendingCloudConversations.contains(id) {
+            errorText = "该会话上一轮云端回答尚未恢复，请稍候或在侧栏开启新对话。"; return
+        }
         composerFocused = false
         let typedText = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typedText.isEmpty || !attachments.isEmpty else { return }
@@ -245,7 +262,16 @@ struct ChatView: View {
         let imageDataURLs = attachments.filter(\.isImage).map(\.dataURL)
         let selectedManualTool = manualTool
         let preferredTool = selectedManualTool?.preferredTool ?? AssistantIntentRouter.preferredTool(for: requestText)
+        if cloudChatEnabled && (preferredTool != nil || !attachments.isEmpty) {
+            errorText = CloudChatError.unsupported.localizedDescription; return
+        }
+        if cloudChatEnabled && (URL(string: cloudServiceURL)?.scheme != "https" || userID.isEmpty || KeychainStore.readCloudServiceToken()?.isEmpty != false) {
+            errorText = CloudChatError.invalidConfiguration.localizedDescription; return
+        }
         if current == nil { createConversation() }; guard let conversation = current else { return }
+        if cloudChatEnabled && ![DeepSeekModelCompatibility.flash, DeepSeekModelCompatibility.pro].contains(DeepSeekModelCompatibility.requestModel(for: conversation.model)) {
+            errorText = CloudChatError.unsupported.localizedDescription; return
+        }
         if preferredTool == "start_deep_search" { conversation.mode = "research" }
         let history = conversation.messages.sorted {
             $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt
@@ -264,7 +290,12 @@ struct ChatView: View {
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation), assistant = ChatMessage(role: "assistant", conversation: conversation)
         context.insert(user); context.insert(assistant)
-        try? context.save()
+        do { try context.save() } catch { context.delete(user); context.delete(assistant); errorText = error.localizedDescription; return }
+        let cloudTicket: CloudChatTicket? = cloudChatEnabled ? .init(id: assistant.id, conversationID: conversation.id,
+            userMessageID: user.id, assistantMessageID: assistant.id, userText: displayText,
+            ownerID: userID, baseURL: cloudServiceURL, createdAt: Date()) : nil
+        activeCloudID = cloudTicket?.id
+        if cloudTicket != nil { pendingCloudConversations.insert(conversation.id) }
         input = ""; attachments = []; photoSelection = []; manualTool = nil; isStreaming = true; errorText = nil
         streamingReasoningPreview = ""; streamingReasoningCount = 0; streamingContent = ""; scrollRequest &+= 1
         toolStatus = preferredTool == "web_search" || preferredTool == "search_local_knowledge" ? "正在处理…" :
@@ -518,12 +549,15 @@ struct ChatView: View {
                         enabledTools: nativeTools,
                         manualToolName: selectedManualTool == .webSearch ? "web_search" :
                             (selectedManualTool == .knowledge ? "local_knowledge_search" : nil),
-                        budget: researchSources == nil ? .production : AgentLoopBudget(maxWallTimeSeconds: 610),
+                        budget: cloudTicket != nil ? AgentLoopBudget(maxWallTimeSeconds: 690) : (researchSources == nil ? .production : AgentLoopBudget(maxWallTimeSeconds: 610)),
                         contextSnapshot: .init(baseSystem: frozenSystem, profile: profileContext,
                             history: agentHistory, priorToolHistory: researchSources == nil ? toolHistoryContext : toolHistoryContext.map { ToolHistoryContextBuilder.researchSafe($0) },
                             atomicMemory: retrievedMemoryContext, runtimeClock: runtimeClockContext,
                             currentUser: requestText, images: imageDataURLs))
-                    let runner = AgentRunner(model: APIClient(), executor: ReadOnlyToolExecutor(localSearch: { query, limit in
+                    let modelClient: any AgentModelStreaming
+                    if let cloudTicket { modelClient = CloudChatModel(ticket: cloudTicket, outbox: .shared) }
+                    else { modelClient = APIClient() }
+                    let runner = AgentRunner(model: modelClient, executor: ReadOnlyToolExecutor(localSearch: { query, limit in
                         await localAdapter.search(query, limit: limit)
                     }), persistence: toolExecutionService)
                     for try await event in runner.events(for: agentRequest) {
@@ -567,18 +601,22 @@ struct ChatView: View {
                 for id in runningToolExecutionIDs { await toolExecutionService.cancel(id: id) }
                 if !fullReasoning.isEmpty { assistant.reasoning = fullReasoning }
                 if !fullContent.isEmpty { assistant.content = fullContent }
-                if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
+                if cloudTicket == nil && assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
             } catch {
                 for id in runningToolExecutionIDs {
                     await toolExecutionService.fail(id: id, errorCode: String(describing: type(of: error)))
                 }
                 if !fullReasoning.isEmpty { assistant.reasoning = fullReasoning }
                 if !fullContent.isEmpty { assistant.content = fullContent }
-                if assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
+                if cloudTicket == nil && assistant.content.isEmpty && assistant.reasoning.isEmpty { context.delete(assistant) }
                 errorText = error.localizedDescription
             }
             await LiveActivityManager.shared.finish(detail: assistant.content.isEmpty ? "生成已停止" : "回答已完成", success: !assistant.content.isEmpty)
             let persistenceSucceeded = finishGeneration()
+            if let cloudTicket, completedSuccessfully, persistenceSucceeded { try? await CloudChatOutbox.shared.remove(cloudTicket.id) }
+            activeCloudID = nil
+            if let cloudTicket, completedSuccessfully, persistenceSucceeded { pendingCloudConversations.remove(cloudTicket.conversationID) }
+            if cloudTicket != nil { Task { await recoverCloudChats() } }
             if let turn = CompletedTurnEligibility.snapshot(
                 successfulCompletion: completedSuccessfully,
                 persistenceSucceeded: persistenceSucceeded,
@@ -605,9 +643,70 @@ struct ChatView: View {
 
     @MainActor private func cancelGeneration() {
         guard isStreaming else { return }
+        if let id = activeCloudID {
+            Task {
+                do {
+                    try await CloudChatOutbox.shared.requestCancellation(id)
+                    if let ticket = try await CloudChatOutbox.shared.all().first(where: { $0.id == id }) {
+                        _ = try? await CloudChatAPI(ticket: ticket).call("DELETE")
+                    }
+                } catch { errorText = "取消状态保存失败：\(error.localizedDescription)" }
+            }
+        }
         streamTask?.cancel()
         toolStatus = "正在停止生成…"
         try? context.save()
+    }
+
+    @MainActor private func recoverCloudChats() async {
+        guard !cloudRecoveryBusy else { return }
+        cloudRecoveryBusy = true
+        defer { cloudRecoveryBusy = false }
+        while !Task.isCancelled && scenePhase == .active {
+            do {
+                let tickets = try await CloudChatOutbox.shared.all()
+                pendingCloudConversations = Set(tickets.map(\.conversationID))
+                if tickets.isEmpty { return }
+                for ticket in tickets where ticket.id != activeCloudID {
+                    try Task.checkCancellation()
+                    let conversationID = ticket.conversationID
+                    let conversation = try context.fetch(FetchDescriptor<Conversation>(predicate: #Predicate { $0.id == conversationID })).first
+                    guard let conversation else {
+                        // Never resurrect a deleted conversation; stop its remote work if possible.
+                        _ = try? await CloudChatAPI(ticket: ticket).call("DELETE")
+                        try await CloudChatOutbox.shared.remove(ticket.id); continue
+                    }
+                    guard let user = conversation.messages.first(where: { $0.id == ticket.userMessageID && $0.role == "user" }),
+                          let assistant = conversation.messages.first(where: { $0.id == ticket.assistantMessageID && $0.role == "assistant" }) else { throw CloudChatError.conflict }
+                    let result: CloudChatSnapshot
+                    do { result = try await CloudChatAPI(ticket: ticket).recover() }
+                    catch CloudChatError.remote(let code) where ["cancelled_before_acceptance", "chat_expired", "chat_conflict"].contains(code) {
+                        errorText = "上次云端任务已终止：\(code)。未触发长期记忆处理。"
+                        try await CloudChatOutbox.shared.remove(ticket.id); pendingCloudConversations.remove(ticket.conversationID); continue
+                    }
+                    assistant.content = result.content; assistant.reasoning = result.reasoning
+                    try context.save()
+                    if result.terminal {
+                        if result.status == "succeeded" && !ticket.cancelRequested {
+                            recoveredCloudConversationID = conversation.id
+                            if let turn = CompletedTurnEligibility.snapshot(successfulCompletion: true, persistenceSucceeded: true,
+                                conversationID: conversation.id, userMessageID: user.id, userText: ticket.userText,
+                                assistantMessageID: assistant.id, assistantText: assistant.content) {
+                                Task { _ = await memoryService.processCompletedTurn(turn) }
+                            }
+                        } else { errorText = "上次云端回答未完成：\(result.errorCode ?? result.status)；不会计入完整回答或长期记忆。" }
+                        try await CloudChatOutbox.shared.remove(ticket.id)
+                        pendingCloudConversations.remove(ticket.conversationID)
+                    }
+                }
+                // Also detects a foreground network failure leaving a registered job for recovery.
+                try await Task.sleep(for: .seconds(tickets.isEmpty ? 5 : 2))
+            } catch is CancellationError { return }
+            catch {
+                errorText = "云端待完成任务暂时无法恢复：\(error.localizedDescription)；记录已保留。"
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
     }
 
     @MainActor private func confirmTask(_ action: PendingTaskAction) async throws {
