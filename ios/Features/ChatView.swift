@@ -103,6 +103,13 @@ struct ChatView: View {
                         recoveredCloudConversationID = nil
                     }.padding(8).frame(maxWidth: .infinity).background(.thinMaterial)
                 }
+                if !isStreaming, let id = current?.id, pendingCloudConversations.contains(id) {
+                    HStack {
+                        Text("云端生成中 · 可退出后回来查看").font(.caption)
+                        Spacer()
+                        Button("取消", role: .destructive) { Task { await cancelPendingCloudConversation(id) } }
+                    }.padding(8).background(.thinMaterial)
+                }
             }
             .navigationTitle(current?.title ?? "DeepSeek").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -687,7 +694,8 @@ struct ChatView: View {
                     assistant.content = result.content; assistant.reasoning = result.reasoning
                     try context.save()
                     if result.terminal {
-                        if result.status == "succeeded" && !ticket.cancelRequested {
+                        let cancelled = try await CloudChatOutbox.shared.all().first(where: { $0.id == ticket.id })?.cancelRequested ?? ticket.cancelRequested
+                        if result.status == "succeeded" && !cancelled {
                             recoveredCloudConversationID = conversation.id
                             if let turn = CompletedTurnEligibility.snapshot(successfulCompletion: true, persistenceSucceeded: true,
                                 conversationID: conversation.id, userMessageID: user.id, userText: ticket.userText,
@@ -707,6 +715,16 @@ struct ChatView: View {
                 do { try await Task.sleep(for: .seconds(15)) } catch { return }
             }
         }
+    }
+
+    @MainActor private func cancelPendingCloudConversation(_ id: UUID) async {
+        do {
+            for ticket in try await CloudChatOutbox.shared.all() where ticket.conversationID == id {
+                try await CloudChatOutbox.shared.requestCancellation(ticket.id)
+                _ = try? await CloudChatAPI(ticket: ticket).call("DELETE")
+            }
+            await recoverCloudChats()
+        } catch { errorText = "取消云端任务失败：\(error.localizedDescription)" }
     }
 
     @MainActor private func confirmTask(_ action: PendingTaskAction) async throws {

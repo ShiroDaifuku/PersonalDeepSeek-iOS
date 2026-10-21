@@ -65,6 +65,8 @@ export async function chatRoutes(req: Request, env: ChatJobEnv, userId: string):
   configured(env,userId); // Existing worker bearer authentication runs before this owner pin.
   if (req.method === 'GET' && path === '/v1/chat-jobs/capabilities') return reply({enabled:true,textOnly:true,serverKey:true,retentionDays:7});
   if (req.method === 'POST' && path === '/v1/chat-jobs') {
+    await env.DB.prepare("UPDATE chat_jobs SET status='failed',request_json=NULL,error_code='execution_interrupted',updated_at=? WHERE user_id=? AND ((status='running' AND started_at<?) OR (status='queued' AND created_at<?))")
+      .bind(Date.now(),userId,Date.now()-12*60000,Date.now()-15*60000).run();
     // Bounded read, regardless of a missing/lying Content-Length.
     const reader = req.body?.getReader(); const pieces: Uint8Array[] = []; let bytes=0;
     if (!reader) throw new AppError('invalid_chat','Missing job');
@@ -150,9 +152,17 @@ export async function consumeChat(env: ChatJobEnv, msg: Message<ChatRunMessage>,
   if(!claim.meta.changes){msg.ack();return;}
   const stream=new ChatStreamAccumulator();const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),11*60000);
+  let checkingCancellation=false;
+  const cancellationPoll=setInterval(()=>{
+    if(checkingCancellation)return;checkingCancellation=true;
+    void env.DB.prepare('SELECT status FROM chat_jobs WHERE user_id=? AND id=?').bind(userId,jobId).first<{status:string}>()
+      .then(value=>{if(value?.status!=='running')controller.abort();})
+      .catch(()=>controller.abort()).finally(()=>{checkingCancellation=false;});
+  },5000);
   let lastSave=started;
   try {
-    const job=await row(env,userId,jobId);if(!job?.request_json)throw new AppError('invalid_chat','Missing frozen request');
+    const job=await row(env,userId,jobId);if(job?.status!=='running')throw new AppError('cancelled','Generation cancelled');
+    if(!job?.request_json)throw new AppError('invalid_chat','Missing frozen request');
     const base=new URL(env.DEEPSEEK_BASE_URL??'https://api.deepseek.com');
     if(base.protocol!=='https:'||base.hostname!=='api.deepseek.com'||base.username||base.password||base.port||!['','/'].includes(base.pathname))throw new AppError('invalid_provider','Invalid official provider endpoint');
     const request=JSON.parse(job.request_json);
@@ -182,7 +192,7 @@ export async function consumeChat(env: ChatJobEnv, msg: Message<ChatRunMessage>,
     const code=error instanceof AppError?error.code:'generation_interrupted';
     await env.DB.prepare("UPDATE chat_jobs SET status='failed',content=?,reasoning=?,error_code=?,request_json=NULL,updated_at=? WHERE user_id=? AND id=? AND status='running'")
       .bind(stream.content,stream.reasoning,code,Date.now(),userId,jobId).run();
-  }finally{clearTimeout(timeout);}
+  }finally{clearTimeout(timeout);clearInterval(cancellationPoll);}
   msg.ack(); // No automatic model retry on ambiguous network/consumer failure.
 }
 
