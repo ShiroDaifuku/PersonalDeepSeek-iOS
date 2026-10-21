@@ -1,0 +1,9 @@
+# CHAT-003 — opt-in durable text answer continuity
+
+2026-10-21 user explicitly authorized beginning cloud continuation after math+avatar. Dedicated branch/worktree codex/cloud-chat-continuity / D:/daifuku/.worktrees/cloud-chat-continuity, parent math sourcececefad.
+
+Implemented: protected frozen local outbox before submission; dedicated D1 chat_jobs table and Queues consumer; pinned owner + existing bearer auth; atomic quotas/claim, fixed official provider, bounded SSE and 429 backoff; cancellation and recovery by original conversation/message IDs; same existing Memory eligibility with actual server completion time (not reopen time); opt-in consent/automatic eligible-text routing. Search/knowledge/scheduling/images/custom-model requests keep their original local path with a foreground notice. Math direct path unchanged; no false promise of tool or math-job durability.
+
+No production deployment, remote migration/resource creation, main merge or IPA authorized/executed. Deployment checklist and acceptance limitations: docs/CLOUD_CHAT_CONTINUITY.md. Monthly shared cost breaker, tool/math cloud execution and APNs completion are not implemented. The user should explicitly approve the additive production migration/deployment before any such action.
+
+Final source42aec7d. Local TS check14/14 Vitest +6/6 actual SQLite SQL tests pass. Final workflow dispatch accepted, but repeated TLS EOFs now block status retrieval across PowerShell/Python/curl/git. FINAL ACCEPTANCE PENDING; do not deploy or package. Intermediate ab726be/run39583020456 passed405 (387 passed/18 skipped/0 failures), migration1/1 (0.487s); it predates completion-time/auto-routing fixes and is NOT final evidence. Read latest workflow for source42aec7d when network recovers. No relaxed assertions, live API tests or installed dependencies.

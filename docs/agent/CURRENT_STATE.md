@@ -1,5 +1,13 @@
 # Current engineering state
 
+## 2026-10-21 — math capture/avatar and opt-in cloud continuity
+
+MATH-002 `codex/math-capture-ui`: sourcececefad passed real macOS run39577682683: 400 ordinary tests (382 passed/18 skipped/0 failures), migration1/1 (0.680s). Photo selection now auto-transcribes statement, existing student work and separate reference solution; rendered single confirmation replaces mandatory editing/manual work entry. Protected per-problem capture sidecars preserve source photos; no existing Math/primary SwiftData schema or ordinary Memory change. AppIcon is the supplied red-haired avatar adaptation; in-app blue mascot videos unchanged.
+
+CHAT-003 `codex/cloud-chat-continuity` / D:/daifuku/.worktrees/cloud-chat-continuity descends from that tested math source. Latest production source42aec7d; FINAL CI STATUS UNCONFIRMED because repeated TLS EOFs prevent GitHub API/git HTTPS reads. Its workflow dispatch was accepted. Intermediate ab726be/run39583020456 passed405 (387 passed/18 skipped/0 failures), migration1/1 (0.487s), but predates time-provenance and auto-routing fixes; do NOT treat it as final-source pass. Added off-by-default eligible-text cloud routing, protected local outbox, owner-pinned D1 job/queue, bounded official SSE and same-conversation recovery using actual server completion time. Existing AgentRunner/APIClient/SSE parser/Memory/Profile implementations unchanged. Tools/images/custom models automatically retain their local path; tool/image/Math-job durability is NOT implemented. Local TS14/14 and actual SQLite6/6 pass. Resume by reading the final source42aec7d workflow/logs before approval for deployment/IPA. See docs/CLOUD_CHAT_CONTINUITY.md and tasks/active/CHAT-003-cloud-continuity.md.
+
+No IPA or production Cloudflare deploy/migration/resource creation has occurred in this increment. A separate explicit deployment decision was requested; absent approval, deliver code/report only. Main/canonical merges still require authorization. Deep Search remains paused. Other worktrees preserved: originalc3d15f6 with user untracked files, canonical593f106 clean.
+
 Updated: 2026-10-18 (Asia/Hong_Kong).
 
 ## User priority override — 2026-10-18
