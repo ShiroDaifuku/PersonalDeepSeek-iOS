@@ -18,6 +18,7 @@ class ChatJobSQLTests(unittest.TestCase):
         self.admission = re.search(r"`(INSERT OR IGNORE INTO chat_jobs[\s\S]+?)`", source).group(1)
         self.claim = re.search(r'"(UPDATE chat_jobs SET status=\'running\'[^"\n]+)"', source).group(1)
         self.finish = re.search(r'"(UPDATE chat_jobs SET status=\'succeeded\'[^"\n]+)"', source).group(1)
+        self.expire = re.search(r'"(UPDATE chat_jobs SET status=\'failed\',content=\'\'[^"\n]+)"', source).group(1)
 
     def tearDown(self):
         self.db.close()
@@ -51,6 +52,14 @@ class ChatJobSQLTests(unittest.TestCase):
             self.db.execute("UPDATE chat_jobs SET status='succeeded' WHERE id=?",[str(index)])
         self.assertEqual(self.insert("over-quota"),0)
         self.assertEqual(self.insert("0",owner="other-owner"),1)
+
+    def test_expiry_erases_prompt_and_output_but_keeps_anti_replay_identity(self):
+        self.insert("a")
+        self.db.execute("UPDATE chat_jobs SET status='succeeded',content='private result',reasoning='private reasoning',usage_json='{}' WHERE id='a'")
+        self.db.execute(self.expire, [200000])
+        row = self.db.execute("SELECT content,reasoning,request_json,usage_json,error_code,request_hash FROM chat_jobs WHERE id='a'").fetchone()
+        self.assertEqual(row, ("", "", None, None, "chat_expired", "frozen"))
+        self.assertEqual(self.insert("a"), 0)
 
 
 if __name__ == "__main__":

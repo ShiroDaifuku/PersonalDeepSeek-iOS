@@ -623,6 +623,11 @@ struct ChatView: View {
             if let cloudTicket, completedSuccessfully, persistenceSucceeded { try? await CloudChatOutbox.shared.remove(cloudTicket.id) }
             activeCloudID = nil
             if let cloudTicket, completedSuccessfully, persistenceSucceeded { pendingCloudConversations.remove(cloudTicket.conversationID) }
+            if let cloudTicket, !completedSuccessfully,
+               (try? await CloudChatOutbox.shared.all().contains(where: { $0.id == cloudTicket.id })) == false {
+                pendingCloudConversations.remove(cloudTicket.conversationID)
+                try? await CloudChatOutbox.shared.remove(cloudTicket.id)
+            }
             if cloudTicket != nil { Task { await recoverCloudChats() } }
             if let turn = CompletedTurnEligibility.snapshot(
                 successfulCompletion: completedSuccessfully,
@@ -672,7 +677,7 @@ struct ChatView: View {
         while !Task.isCancelled && scenePhase == .active {
             do {
                 let tickets = try await CloudChatOutbox.shared.all()
-                pendingCloudConversations = Set(tickets.map(\.conversationID))
+                pendingCloudConversations.formUnion(tickets.map(\.conversationID))
                 if tickets.isEmpty { return }
                 for ticket in tickets where ticket.id != activeCloudID {
                     try Task.checkCancellation()

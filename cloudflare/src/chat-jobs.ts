@@ -197,5 +197,7 @@ export async function consumeChat(env: ChatJobEnv, msg: Message<ChatRunMessage>,
 }
 
 export async function purgeChatJobs(env: ChatJobEnv) {
-  await env.DB.prepare('DELETE FROM chat_jobs WHERE expires_at<?').bind(Date.now()).run();
+  // Retain only the identity/hash tombstone: a lost local receipt must never recreate
+  // an already billed generation after its output has expired and been purged.
+  await env.DB.prepare("UPDATE chat_jobs SET status='failed',content='',reasoning='',request_json=NULL,usage_json=NULL,error_code='chat_expired' WHERE expires_at<? AND error_code IS NOT 'chat_expired'").bind(Date.now()).run();
 }

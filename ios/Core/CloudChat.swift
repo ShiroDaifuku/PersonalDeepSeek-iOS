@@ -68,7 +68,7 @@ actor CloudChatOutbox {
     private func cancellationFile(_ id: UUID) throws -> URL { try directory().appendingPathComponent("\(id.uuidString).cancel") }
     func all() throws -> [CloudChatTicket] {
         let files = try FileManager.default.contentsOfDirectory(at: directory(), includingPropertiesForKeys: [.fileSizeKey]).filter { $0.pathExtension == "json" }
-        guard files.count <= 100 else { throw CloudChatError.invalidResponse }
+        guard files.count <= 20 else { throw CloudChatError.invalidResponse }
         return try files.map { url in
             guard let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent),
                   (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max) <= 1_500_000 else { throw CloudChatError.invalidResponse }
@@ -79,7 +79,10 @@ actor CloudChatOutbox {
     }
     func put(_ ticket: CloudChatTicket) throws {
         guard ticket.id == ticket.assistantMessageID, (ticket.requestData?.count ?? 0) <= 1_000_000 else { throw CloudChatError.invalidResponse }
-        if let old = try all().first(where: { $0.id == ticket.id }) {
+        let records = try all()
+        let existing = records.first(where: { $0.id == ticket.id })
+        guard existing != nil || records.count < 20 else { throw CloudChatError.pendingSave }
+        if let old = existing {
             guard old.conversationID == ticket.conversationID, old.userMessageID == ticket.userMessageID,
                   old.requestData == ticket.requestData, old.ownerID == ticket.ownerID, old.baseURL == ticket.baseURL else { throw CloudChatError.conflict }
         }

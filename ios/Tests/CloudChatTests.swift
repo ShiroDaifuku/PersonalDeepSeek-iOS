@@ -59,6 +59,8 @@ final class CloudChatTests: XCTestCase {
             try await group.waitForAll()
         }
         let saved = try await box.all(); XCTAssertEqual(saved.count, 20)
+        let extra = try CloudChatModel.prepared(ticket(), request: request())
+        do { try await box.put(extra); XCTFail("Unbounded outbox admitted") } catch { }
         var changed = values[0]; changed.requestData = Data("different frozen request".utf8)
         do { try await box.put(changed); XCTFail("Request overwrite accepted") } catch { }
         let after = try await box.all()
