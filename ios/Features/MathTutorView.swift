@@ -146,10 +146,11 @@ struct MathTutorView: View {
         }.disabled(locked)
     }
     private var photoActions: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let title = model.current == nil ? "上传题目与解题过程" : "上传新的解题过程"
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 PhotosPicker(selection: $selection, maxSelectionCount: 6, matching: .images) {
-                    Label(model.current == nil ? "上传题目与解题过程" : "上传新的解题过程", systemImage: "photo.on.rectangle")
+                    Label(title, systemImage: "photo.on.rectangle")
                 }.buttonStyle(.borderedProminent)
                 Button { requestCamera() } label: { Image(systemName: "camera") }.buttonStyle(.bordered).accessibilityLabel("拍照识别")
             }
