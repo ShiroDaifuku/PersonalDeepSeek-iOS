@@ -236,15 +236,94 @@ private final class MathTestModel: AgentModelStreaming, @unchecked Sendable {
     }
     func testRecognitionNeedsUserReviewAndDoesNotStoreProblem() async throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
-        let fake = MathTestModel(text: "求 $x^2$ 的导数。")
+        let fake = MathTestModel(text: #"{"statement":"求 $x^2$ 的导数。","studentWork":"先写幂函数求导","referenceSolution":"","uncertainties":[]}"#)
         let service = MathLearningService(store: try store(), directory: root)
         let model = MathTutorViewModel(service: service, client: .init(model: fake))
         model.photo = PendingAttachment(name: "test.jpg", mimeType: "image/jpeg", data: Data([1]))
         model.recognize(); try await wait(model)
         XCTAssertEqual(model.statement, "求 $x^2$ 的导数。")
+        XCTAssertEqual(model.work, "先写幂函数求导")
+        XCTAssertNotNil(model.pendingCapture)
         XCTAssertFalse(model.reviewed); XCTAssertNil(model.current)
         let records = try await service.list(); XCTAssertTrue(records.isEmpty)
         XCTAssertEqual(fake.requests().count, 1)
+    }
+    func testCaptureDecoderSeparatesWorkAndReferenceAndRejectsPartialJSON() throws {
+        let value = try MathCapture.decode(#"{"statement":"求 $x^2$ 的导数","studentWork":"我写成 $x$","referenceSolution":"参考：$2x$","uncertainties":["末行不清楚"]}"#)
+        XCTAssertEqual(value.studentWork, "我写成 $x$")
+        XCTAssertEqual(value.referenceSolution, "参考：$2x$")
+        XCTAssertEqual(try MathCapture.decode("```json\n" + String(data: JSONEncoder().encode(value), encoding: .utf8)! + "\n```"), value)
+        for text in ["plain OCR", "{\"statement\":\"partial\"}", #"{"statement":"","studentWork":"","referenceSolution":"","uncertainties":[]}"#] {
+            XCTAssertThrowsError(try MathCapture.decode(text))
+        }
+        XCTAssertThrowsError(try MathCapture(statement: "题", studentWork: String(repeating: "x", count: 8_001), referenceSolution: "", uncertainties: []).validated())
+    }
+    func testCaptureArchiveReloadMultipleProvenanceAndDelete() async throws {
+        let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let storage = try store()
+        let service = MathLearningService(store: storage, directory: root)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).jpegData(withCompressionQuality: 0.8) { context in
+            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+        }
+        let capture = MathCapture(statement: "求导", studentWork: "手写步骤", referenceSolution: "印刷参考", uncertainties: [])
+        let problem = try await service.create(statement: capture.statement, subject: .calculus, topicID: nil, photo: image, capture: capture, images: [image, image])
+        let reopened = MathLearningService(store: storage, directory: root)
+        let first = try await reopened.captures(for: problem)
+        XCTAssertEqual(first?.records.count, 1)
+        XCTAssertEqual(first?.records.first?.images, [image, image])
+        XCTAssertEqual(first?.records.first?.capture, capture)
+        try await reopened.appendCapture(capture, images: [image], for: problem)
+        let second = try await service.captures(for: problem)
+        XCTAssertEqual(second?.records.count, 2)
+        XCTAssertNotEqual(second?.records.first?.id, second?.records.last?.id)
+        XCTAssertTrue(problem.attempts.isEmpty) // OCR is not a completed teaching turn or mastery evidence.
+        try await service.delete(problem)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(problem.id).capture.json").path))
+    }
+    func testRecognitionConfirmationAndSupplementNeverTeachAutomatically() async throws {
+        let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let fake = MathTestModel(text: #"{"statement":"求导","studentWork":"手写做法","referenceSolution":"参考做法","uncertainties":[]}"#)
+        let service = MathLearningService(store: try store(), directory: root)
+        let model = MathTutorViewModel(service: service, client: .init(model: fake))
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).jpegData(withCompressionQuality: 0.8) { context in
+            UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+        }
+        model.acceptPhoto(image); model.recognize(); try await wait(model)
+        model.teach()
+        XCTAssertEqual(fake.requests().count, 1)
+        XCTAssertNil(model.current)
+        await model.confirmCapture()
+        XCTAssertNotNil(model.current)
+        XCTAssertNil(model.pendingCapture)
+        XCTAssertEqual(fake.requests().count, 1) // User's single UI confirmation starts teaching, storage does not.
+        let saved = try XCTUnwrap(model.current)
+        model.acceptPhoto(image); model.recognize(); try await wait(model)
+        model.teach()
+        XCTAssertEqual(fake.requests().count, 2) // Pending supplemental work cannot leak into teaching.
+        await model.confirmCapture()
+        let archive = try await service.captures(for: saved)
+        XCTAssertEqual(archive?.records.count, 2)
+        XCTAssertEqual(archive?.records.last?.capture.studentWork, "手写做法")
+        let messages = try MathTutorPrompt.teaching(problem: saved, mode: .checkWork, work: model.work, capture: model.capture)
+        XCTAssertTrue(messages.last!.content.contains("手写做法"))
+        XCTAssertTrue(messages.contains { $0.content.contains("参考答案不是用户作答") })
+        model.select(saved)
+        for _ in 0..<200 { if !model.importing { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(model.work, "手写做法")
+    }
+    func testMalformedOrCancelledRecognitionDoesNotCreateOrReplaceArchive() async throws {
+        let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+        for fake in [MathTestModel(text: "broken JSON"), MathTestModel(text: "{}", reason: "length"), MathTestModel(delay: 2_000_000_000)] {
+            let service = MathLearningService(store: try store(), directory: root)
+            let model = MathTutorViewModel(service: service, client: .init(model: fake))
+            model.photo = PendingAttachment(name: "fixture.jpg", mimeType: "image/jpeg", data: Data([1]))
+            model.recognize()
+            if fake.delay > 0 { model.stop() }
+            try await wait(model)
+            XCTAssertNil(model.pendingCapture); XCTAssertNil(model.current)
+            XCTAssertNotNil(model.error)
+            let problems = try await service.list(); XCTAssertTrue(problems.isEmpty)
+        }
     }
     func testMathScreenCanMountWithDynamicTypeAndDarkMode() async throws {
         let service = MathLearningService(store: try store(), directory: try directory())

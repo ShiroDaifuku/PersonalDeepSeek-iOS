@@ -35,21 +35,23 @@ struct MathTutorHost: View {
 
 struct MathTutorView: View {
     @ObservedObject var model: MathTutorViewModel
-    @State private var selection: PhotosPickerItem?
+    @State private var selection: [PhotosPickerItem] = []
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var deleteTarget: MathProblemSnapshot?
     @State private var cameraError: String?
+    @State private var cameraImported = false
     @FocusState private var focused: Bool
     private var locked: Bool { model.busy || model.saving || model.importing }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Label("考研数学一 · 本机学习档案", systemImage: "function").font(.headline)
-                Text("高等数学 · 线性代数 · 概率论与数理统计\n本阶段记录题目与教学过程，不自动判定薄弱点。图片和题干仅在你发起识别或教学时发送给 DeepSeek。")
+                Text("拍题及已有解题过程 → 核对公式 → 开始辅导。不用手抄步骤；本阶段不自动判定薄弱点。图片会发送给 DeepSeek 识别。")
                     .font(.caption).foregroundStyle(.secondary)
                 if model.current == nil { draft }
                 else { savedProblem }
+                if model.pendingCapture != nil { captureReview }
                 if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled).accessibilityLabel("错误：\(error)") }
                 if !model.status.isEmpty { Text(model.status).font(.caption).foregroundStyle(.secondary) }
                 if model.busy {
@@ -66,27 +68,34 @@ struct MathTutorView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarLeading) {
                 Button { showLibrary = true } label: { Image(systemName: "books.vertical") }.accessibilityLabel("数学题目档案").disabled(locked)
-                Button { model.newProblem(); selection = nil } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("新题目").disabled(locked)
+                Button { model.newProblem(); selection = [] } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("新题目").disabled(locked)
             }
         }
         .fullScreenCover(isPresented: $showCamera, onDismiss: {
             if let cameraError { model.error = cameraError; self.cameraError = nil }
+            else if cameraImported { cameraImported = false; model.recognize() }
         }) {
             CameraPicker { data in
                 guard let data else { return }
                 model.acceptPhoto(data)
+                cameraImported = model.error == nil
                 if let error = model.error { cameraError = error }
             }
         }
         .onChange(of: selection) { _, value in
-            guard let value, !locked else { return }
+            guard !value.isEmpty, !locked else { return }
             model.importing = true
             Task { @MainActor in
-                defer { model.importing = false; selection = nil }
                 do {
-                    guard let data = try await value.loadTransferable(type: Data.self) else { throw MathStudyError.invalidPhoto }
-                    model.acceptPhoto(data)
-                } catch { model.error = "读取照片失败：\(error.localizedDescription)" }
+                    var images: [PendingAttachment] = []
+                    for item in value {
+                        guard let data = try await item.loadTransferable(type: Data.self), let image = PendingAttachment.image(data: data) else { throw MathStudyError.invalidPhoto }
+                        images.append(image)
+                    }
+                    model.acceptPhotos(images)
+                    model.importing = false; selection = []
+                    model.recognize()
+                } catch { model.importing = false; selection = []; model.error = "读取照片失败：\(error.localizedDescription)" }
             }
         }
         .sheet(isPresented: $showLibrary) {
@@ -111,36 +120,86 @@ struct MathTutorView: View {
     }
     private var draft: some View {
         VStack(alignment: .leading, spacing: 14) {
+            photoActions
+            if let photo = model.photo, let image = UIImage(data: photo.data) {
+                DisclosureGroup("已上传 \(model.capturePhotos.count) 张图片 · 查看原图") {
+                    Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 230)
+                }
+                if model.pendingCapture == nil {
+                    Button("重新识别") { focused = false; model.recognize() }.buttonStyle(.bordered)
+                }
+            }
+            DisclosureGroup("指定题号或分类（可选）") {
+                TextField("多题时指定题号", text: $model.target).textFieldStyle(.roundedBorder)
+                classification
+            }
+            if model.pendingCapture == nil {
+                DisclosureGroup("直接输入题目") {
+                    TextEditor(text: $model.statement).frame(minHeight: 130).focused($focused).accessibilityLabel("题干")
+                    if !model.statement.isEmpty { RichMessageView(text: model.statement) }
+                    Button("确认题干并保存") {
+                        focused = false; model.reviewed = true
+                        Task { await model.confirm() }
+                    }.disabled(model.statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }.disabled(locked)
+    }
+    private var photoActions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                PhotosPicker(selection: $selection, maxSelectionCount: 6, matching: .images) {
+                    Label(model.current == nil ? "上传题目与解题过程" : "上传新的解题过程", systemImage: "photo.on.rectangle")
+                }.buttonStyle(.borderedProminent)
+                Button { requestCamera() } label: { Image(systemName: "camera") }.buttonStyle(.bordered).accessibilityLabel("拍照识别")
+            }
+            Text("最多 6 张。同一题的题干、手写步骤和参考解答可一并选择；选完自动识别。多题请先在可选设置中指定题号。")
+                .font(.caption).foregroundStyle(.secondary)
+        }.disabled(locked)
+    }
+    private var classification: some View {
+        VStack {
             Picker("科目", selection: $model.subject) { ForEach(MathSubject.allCases) { Text($0.title).tag($0) } }
                 .onChange(of: model.subject) { _, _ in model.topicID = "" }
-            Picker("知识点（可选，手动分类）", selection: $model.topicID) {
+            Picker("知识点", selection: $model.topicID) {
                 Text("暂不分类").tag("")
                 ForEach(MathSyllabus.topics.filter { $0.subject == model.subject }) { Text($0.title).tag($0.id) }
             }
-            HStack {
-                PhotosPicker(selection: $selection, matching: .images) { Label("选照片", systemImage: "photo") }
-                Spacer()
-                Button { requestCamera() } label: { Label("拍题", systemImage: "camera") }
+        }
+    }
+    private var captureReview: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("核对识别结果").font(.title2.bold())
+            RichMessageView(text: model.statement)
+            if !model.work.isEmpty {
+                Label("照片中的我的解题过程", systemImage: "pencil.line").font(.headline)
+                RichMessageView(text: model.work)
+            } else { Text("未识别到你的手写步骤；无需手动补写，可继续上传照片。").font(.caption).foregroundStyle(.secondary) }
+            if let capture = model.pendingCapture {
+                if !capture.referenceSolution.isEmpty {
+                    DisclosureGroup("参考解答（不计作你的作答）") { RichMessageView(text: capture.referenceSolution) }
+                }
+                ForEach(Array(capture.uncertainties.enumerated()), id: \.offset) { _, text in
+                    Label(text, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                }
             }
-            if let photo = model.photo, let image = UIImage(data: photo.data) {
-                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 230).accessibilityLabel("当前题目原图")
-                Button("移除图片", role: .destructive) { model.photo = nil; model.reviewed = false }
-                TextField("指定题号或位置（一次一道）", text: $model.target).textFieldStyle(.roundedBorder).focused($focused)
-                Button("识别指定题目（不求解）") { focused = false; model.recognize() }.buttonStyle(.bordered)
+            DisclosureGroup("识别有误？少量修正", isExpanded: $model.editingCapture) {
+                if model.current == nil { TextEditor(text: $model.statement).frame(minHeight: 100).accessibilityLabel("修正题干") }
+                Text("修正我的步骤（可留空）").font(.caption)
+                TextEditor(text: $model.work).frame(minHeight: 100).accessibilityLabel("修正识别的解题过程")
+                if model.pendingCapture != nil {
+                    Text("参考解答（来源不确定时保留在此，不计作用户步骤）").font(.caption)
+                    TextEditor(text: Binding(get: { model.pendingCapture?.referenceSolution ?? "" }, set: { model.pendingCapture?.referenceSolution = $0 })).frame(minHeight: 100)
+                }
             }
-            Text("题干核对与编辑").font(.headline)
-            Text("多题照片请明确题号；模糊符号、图形条件请手动补充。也可以不上传图片，直接输入题目。")
-                .font(.caption).foregroundStyle(.secondary)
-            TextEditor(text: $model.statement).frame(minHeight: 150).padding(6)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10)).focused($focused)
-                .accessibilityLabel("可编辑题干，支持 LaTeX")
-                .onChange(of: model.statement) { _, _ in model.reviewed = false }
-            if !model.statement.isEmpty { DisclosureGroup("预览数学公式") { RichMessageView(text: model.statement) } }
-            Toggle("我已核对目标题目、符号和全部条件", isOn: $model.reviewed)
-            Button { focused = false; Task { await model.confirm() } } label: {
-                Text(model.saving ? "保存中…" : "确认题干并保存").frame(maxWidth: .infinity)
-            }.buttonStyle(.borderedProminent).disabled(!model.reviewed || model.statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }.disabled(locked)
+            Picker("辅导方式", selection: $model.mode) { ForEach(MathTeachingMode.allCases) { Text($0.title).tag($0) } }
+            Button("确认无误，开始辅导") {
+                focused = false
+                Task { await model.confirmCapture(); if model.pendingCapture == nil && model.error == nil { model.teach() } }
+            }.buttonStyle(.borderedProminent)
+                .disabled(locked || model.statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }.padding().background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            .disabled(locked)
     }
     @ViewBuilder private var savedProblem: some View {
         if let problem = model.current {
@@ -153,20 +212,30 @@ struct MathTutorView: View {
             ForEach(problem.attempts) { attempt in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(attempt.mode.title + (attempt.status == .completed ? "" : " · 未完成")).font(.headline)
-                    if !attempt.userWork.isEmpty { Text(attempt.userWork).textSelection(.enabled) }
+                    if !attempt.userWork.isEmpty { RichMessageView(text: attempt.userWork) }
                     if !attempt.response.isEmpty { RichMessageView(text: attempt.response); ShareLink("分享", item: attempt.response) }
                 }.padding(.vertical, 8)
                 Divider()
             }
-            Picker("教学方式", selection: $model.mode) { ForEach(MathTeachingMode.allCases) { Text($0.title).tag($0) } }.disabled(locked)
-            Text("你的作答、卡住的位置或具体问题").font(.headline)
-            TextEditor(text: $model.work).frame(minHeight: 100).focused($focused)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10)).disabled(locked).accessibilityLabel("我的解题步骤")
-            Text("检查步骤时必须提交你的做法；只看答案不会被记为已掌握。AI 解答可能出错，请核验。") .font(.caption).foregroundStyle(.secondary)
-            Button("发送教学请求") { focused = false; model.teach() }.buttonStyle(.borderedProminent).disabled(locked)
+            if model.pendingCapture == nil {
+                photoActions
+                if let capture = model.capture {
+                    DisclosureGroup("已识别的解题过程与参考解答") {
+                        if !capture.studentWork.isEmpty { Text("我的步骤").font(.headline); RichMessageView(text: capture.studentWork) }
+                        if !capture.referenceSolution.isEmpty { Text("参考解答").font(.headline); RichMessageView(text: capture.referenceSolution) }
+                    }
+                }
+                Picker("辅导方式", selection: $model.mode) { ForEach(MathTeachingMode.allCases) { Text($0.title).tag($0) } }.disabled(locked)
+                DisclosureGroup("补充问题或修正步骤（可选）") {
+                    TextEditor(text: $model.work).frame(minHeight: 100).focused($focused).accessibilityLabel("可选补充问题")
+                }.disabled(locked)
+                Text("检查步骤使用照片识别的你的做法；参考答案不会记为已掌握。AI 解答可能出错，请核验。") .font(.caption).foregroundStyle(.secondary)
+                Button("继续辅导") { focused = false; model.teach() }.buttonStyle(.borderedProminent).disabled(locked)
+            }
         }
     }
     private func requestCamera() {
+        cameraImported = false
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else { model.error = "当前设备没有可用相机，请选择照片。"; return }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: showCamera = true
