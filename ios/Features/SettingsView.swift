@@ -71,7 +71,7 @@ struct SettingsView: View {
                     if value { confirmingCloudChat = true } else { cloudChatEnabled = false }
                 }))
                 if cloudChatEnabled {
-                    Text("使用服务器保存的 DeepSeek Key，不使用或上传手机聊天 Key。只支持无附件、无工具调用的纯文本；需要搜索、知识库、图片或定时任务时请先关闭此开关。提交成功后可强制退出，重开后恢复到原会话；结果保留 7 天。")
+                    Text("符合条件的纯文本回答使用服务器 Key，不上传手机 Key。搜索、知识库、图片、定时任务及自定义模型自动保留原有本机链路，并提示保持 App 运行；数学页也仍在本机执行。已提交的云端回答可退出后恢复到原会话，结果保留 7 天。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("云端续跑部署身份") {
@@ -131,7 +131,7 @@ struct SettingsView: View {
             Button("取消", role: .cancel) { }
             Button("同意并启用") { cloudChatEnabled = true }
         } message: {
-            Text("每轮组装好的当前对话上下文（可能含相关长期记忆和画像）将发送并暂存于你配置的 Cloudflare 后端，使用服务器 Key 调用 DeepSeek。手机 Key 不上传。请求完成后删除云端输入，结果最长保留 7 天。图片和工具流程暂不支持。关闭开关只影响后续提问，不会取消已提交任务。")
+            Text("符合条件的纯文本对话上下文（可能含相关长期记忆和画像）将发送并暂存于你配置的 Cloudflare 后端，使用服务器 Key 调用 DeepSeek。手机 Key 不上传。请求完成后删除云端输入，结果最长保留 7 天。图片、工具和数学流程仍在本机，不保证强退后完成。关闭开关只影响后续提问，不会取消已提交任务。")
         }
         .onAppear {
             if !["low", "high", "max"].contains(effort) { effort = "low" }

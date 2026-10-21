@@ -23,6 +23,13 @@ final class CloudChatTests: XCTestCase {
         XCTAssertEqual(try CloudChatModel.prepared(t, request: r).requestData, frozen.requestData)
     }
     func testLocalToolsAndImagesCannotSilentlyBecomeToolFreeCloudChat() throws {
+        XCTAssertTrue(CloudChatRouting.usesCloud(enabled:true,preferredTool:nil,attachmentCount:0,model:DeepSeekModelCompatibility.flash))
+        XCTAssertFalse(CloudChatRouting.usesCloud(enabled:false,preferredTool:nil,attachmentCount:0,model:DeepSeekModelCompatibility.flash))
+        for tool in ["web_search", "search_local_knowledge", "start_deep_search", "create_scheduled_task", "edit_scheduled_task"] {
+            XCTAssertFalse(CloudChatRouting.usesCloud(enabled:true,preferredTool:tool,attachmentCount:0,model:DeepSeekModelCompatibility.flash))
+        }
+        XCTAssertFalse(CloudChatRouting.usesCloud(enabled:true,preferredTool:nil,attachmentCount:1,model:DeepSeekModelCompatibility.flash))
+        XCTAssertFalse(CloudChatRouting.usesCloud(enabled:true,preferredTool:nil,attachmentCount:0,model:"custom-model"))
         let t = ticket()
         var tools = request()
         // AgentModelRequest fields are immutable: construct the unsupported variant explicitly.

@@ -40,8 +40,8 @@ class ChatJobSQLTests(unittest.TestCase):
 
     def test_claim_once_and_cancelled_result_cannot_be_overwritten(self):
         self.insert("a")
-        self.assertEqual(self.db.execute(self.claim,[2000,2000,"owner","a",2000]).rowcount,1)
-        self.assertEqual(self.db.execute(self.claim,[2000,2000,"owner","a",2000]).rowcount,0)
+        self.assertEqual(self.db.execute(self.claim,[2000,2000,"owner","a",2000,-898000]).rowcount,1)
+        self.assertEqual(self.db.execute(self.claim,[2000,2000,"owner","a",2000,-898000]).rowcount,0)
         self.db.execute("UPDATE chat_jobs SET status='cancelled' WHERE id='a'")
         self.assertEqual(self.db.execute(self.finish,["late answer","reasoning","{}",3000,"owner","a"]).rowcount,0)
         self.assertEqual(self.db.execute("SELECT status FROM chat_jobs WHERE id='a'").fetchone()[0], "cancelled")
@@ -60,6 +60,11 @@ class ChatJobSQLTests(unittest.TestCase):
         row = self.db.execute("SELECT content,reasoning,request_json,usage_json,error_code,request_hash FROM chat_jobs WHERE id='a'").fetchone()
         self.assertEqual(row, ("", "", None, None, "chat_expired", "frozen"))
         self.assertEqual(self.insert("a"), 0)
+
+    def test_late_queue_delivery_cannot_start_a_new_provider_request(self):
+        self.insert("a")
+        self.db.execute("UPDATE chat_jobs SET expires_at=9999999 WHERE id='a'")
+        self.assertEqual(self.db.execute(self.claim,[1000000,1000000,"owner","a",1000000,100000]).rowcount,0)
 
 
 if __name__ == "__main__":

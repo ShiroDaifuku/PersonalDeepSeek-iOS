@@ -1,11 +1,18 @@
 import Foundation
 
+enum CloudChatRouting {
+    static func usesCloud(enabled: Bool, preferredTool: String?, attachmentCount: Int, model: String) -> Bool {
+        enabled && preferredTool == nil && attachmentCount == 0 &&
+        [DeepSeekModelCompatibility.flash, DeepSeekModelCompatibility.pro].contains(DeepSeekModelCompatibility.requestModel(for: model))
+    }
+}
+
 enum CloudChatError: LocalizedError {
     case invalidConfiguration, unsupported, invalidResponse, remote(String), pendingSave, conflict
     var errorDescription: String? {
         switch self {
         case .invalidConfiguration: "云端续跑尚未配置，请检查服务地址、访问令牌与服务器 CHAT_USER_ID。"
-        case .unsupported: "云端续跑初版仅支持不含工具调用和附件的纯文本对话。请关闭云端续跑后使用原有功能。"
+        case .unsupported: "本请求超过纯文本云端续跑的范围或长度限制。可关闭续跑使用直连；不会删减工具、附件或历史后发送。"
         case .invalidResponse: "云端任务响应无效，已保留本地待恢复记录。"
         case .remote(let code): "云端任务未完成：\(code)。"
         case .pendingSave: "无法保存本地恢复记录，未提交云端任务。"

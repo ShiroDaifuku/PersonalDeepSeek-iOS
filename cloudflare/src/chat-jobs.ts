@@ -149,8 +149,11 @@ export async function consumeChat(env: ChatJobEnv, msg: Message<ChatRunMessage>,
   const {userId,jobId}=msg.body;
   if(!env.CHAT_USER_ID||userId!==env.CHAT_USER_ID){msg.ack();return;}
   const started=Date.now();
-  const claim=await env.DB.prepare("UPDATE chat_jobs SET status='running',started_at=?,updated_at=? WHERE user_id=? AND id=? AND status='queued' AND expires_at>?").bind(started,started,userId,jobId,started).run();
-  if(!claim.meta.changes){msg.ack();return;}
+  const claim=await env.DB.prepare("UPDATE chat_jobs SET status='running',started_at=?,updated_at=? WHERE user_id=? AND id=? AND status='queued' AND expires_at>? AND created_at>?").bind(started,started,userId,jobId,started,started-15*60000).run();
+  if(!claim.meta.changes){
+    await env.DB.prepare("UPDATE chat_jobs SET status='failed',request_json=NULL,error_code='queue_timeout',updated_at=? WHERE user_id=? AND id=? AND status='queued' AND created_at<=?").bind(started,userId,jobId,started-15*60000).run();
+    msg.ack();return;
+  }
   const stream=new ChatStreamAccumulator();const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),11*60000);
   let checkingCancellation=false;

@@ -111,6 +111,10 @@ struct ChatView: View {
                         Button("取消", role: .destructive) { Task { await cancelPendingCloudConversation(id) } }
                     }.padding(8).background(.thinMaterial)
                 }
+                if cloudChatEnabled && isStreaming && activeCloudID == nil {
+                    Text("本轮使用本机工具、附件或模型 · 请保持 App 运行")
+                        .font(.caption).foregroundStyle(.secondary).padding(6)
+                }
             }
             .navigationTitle(current?.title ?? "DeepSeek").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -270,16 +274,12 @@ struct ChatView: View {
         let imageDataURLs = attachments.filter(\.isImage).map(\.dataURL)
         let selectedManualTool = manualTool
         let preferredTool = selectedManualTool?.preferredTool ?? AssistantIntentRouter.preferredTool(for: requestText)
-        if cloudChatEnabled && (preferredTool != nil || !attachments.isEmpty) {
-            errorText = CloudChatError.unsupported.localizedDescription; return
-        }
-        if cloudChatEnabled && (URL(string: cloudServiceURL)?.scheme != "https" || userID.isEmpty || KeychainStore.readCloudServiceToken()?.isEmpty != false) {
+        let useCloud = CloudChatRouting.usesCloud(enabled: cloudChatEnabled, preferredTool: preferredTool,
+            attachmentCount: attachments.count, model: current?.model ?? defaultModel)
+        if useCloud && (URL(string: cloudServiceURL)?.scheme != "https" || userID.isEmpty || KeychainStore.readCloudServiceToken()?.isEmpty != false) {
             errorText = CloudChatError.invalidConfiguration.localizedDescription; return
         }
         if current == nil { createConversation() }; guard let conversation = current else { return }
-        if cloudChatEnabled && ![DeepSeekModelCompatibility.flash, DeepSeekModelCompatibility.pro].contains(DeepSeekModelCompatibility.requestModel(for: conversation.model)) {
-            errorText = CloudChatError.unsupported.localizedDescription; return
-        }
         if preferredTool == "start_deep_search" { conversation.mode = "research" }
         let history = conversation.messages.sorted {
             $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt
@@ -298,10 +298,10 @@ struct ChatView: View {
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation), assistant = ChatMessage(role: "assistant", conversation: conversation)
         context.insert(user); context.insert(assistant)
-        if cloudChatEnabled {
+        if useCloud {
             do { try context.save() } catch { context.delete(user); context.delete(assistant); errorText = error.localizedDescription; return }
         } else { try? context.save() } // Preserve the existing direct-chat path.
-        let cloudTicket: CloudChatTicket? = cloudChatEnabled ? .init(id: assistant.id, conversationID: conversation.id,
+        let cloudTicket: CloudChatTicket? = useCloud ? .init(id: assistant.id, conversationID: conversation.id,
             userMessageID: user.id, assistantMessageID: assistant.id, userText: displayText,
             ownerID: userID, baseURL: cloudServiceURL, createdAt: Date()) : nil
         activeCloudID = cloudTicket?.id
