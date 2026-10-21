@@ -46,12 +46,16 @@ final class CloudChatTests: XCTestCase {
         let t = try CloudChatModel.prepared(ticket(), request: request())
         try await first.requestCancellation(t.id)
         try await first.put(t)
+        var completed = t
+        completed.serverCompletedAt = Date(timeIntervalSince1970: 1_750_000_000)
+        try await first.put(completed)
         let reopened = CloudChatOutbox(directory: root)
         let records = try await reopened.all()
         XCTAssertEqual(records.count, 1)
         XCTAssertTrue(records[0].cancelRequested)
         XCTAssertEqual(records[0].requestData, t.requestData)
         XCTAssertEqual(records[0].conversationID, t.conversationID)
+        XCTAssertEqual(records[0].serverCompletedAt, completed.serverCompletedAt)
         try await reopened.remove(t.id)
         let remaining = try await first.all(); XCTAssertTrue(remaining.isEmpty)
     }
@@ -77,7 +81,7 @@ final class CloudChatTests: XCTestCase {
         func snapshot(_ id: UUID, _ status: String, _ content: String) -> CloudChatSnapshot {
             .init(id: id, conversationID: t.conversationID, userMessageID: t.userMessageID,
                 assistantMessageID: t.assistantMessageID, status: status, content: content, reasoning: "",
-                errorCode: nil, expiresAt: Date().timeIntervalSince1970 * 1000 + 60000)
+                errorCode: nil, expiresAt: Date().timeIntervalSince1970 * 1000 + 60000, completedAt: 1_750_000_000_000)
         }
         XCTAssertNoThrow(try snapshot(t.id,"succeeded","answer").validate(for:t))
         XCTAssertThrowsError(try snapshot(UUID(),"succeeded","answer").validate(for:t))
@@ -85,5 +89,11 @@ final class CloudChatTests: XCTestCase {
         XCTAssertThrowsError(try snapshot(t.id,"succeeded",String(repeating:"x",count:200001)).validate(for:t))
         XCTAssertThrowsError(try snapshot(t.id,"unknown","answer").validate(for:t))
         XCTAssertFalse(snapshot(t.id,"running","partial").terminal)
+        let completed = snapshot(t.id,"succeeded","answer")
+        let turn = try XCTUnwrap(completed.completedTurn(for:t,cancelled:false,persistenceSucceeded:true))
+        XCTAssertEqual(turn.completedAt, Date(timeIntervalSince1970: 1_750_000_000))
+        XCTAssertEqual(turn.turnFingerprint, CompletedTurnFingerprint.make(conversationID:t.conversationID,userMessageID:t.userMessageID,assistantMessageID:t.assistantMessageID))
+        XCTAssertNil(try completed.completedTurn(for:t,cancelled:true,persistenceSucceeded:true))
+        XCTAssertNil(try completed.completedTurn(for:t,cancelled:false,persistenceSucceeded:false))
     }
 }

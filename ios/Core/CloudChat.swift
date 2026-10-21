@@ -25,6 +25,7 @@ struct CloudChatTicket: Codable, Sendable, Equatable, Identifiable {
     let createdAt: Date
     var requestData: Data?
     var cancelRequested = false
+    var serverCompletedAt: Date?
 }
 
 struct CloudChatSnapshot: Decodable, Sendable {
@@ -37,6 +38,7 @@ struct CloudChatSnapshot: Decodable, Sendable {
     let reasoning: String
     let errorCode: String?
     let expiresAt: Double
+    let completedAt: Double?
 
     func validate(for ticket: CloudChatTicket) throws {
         guard id == ticket.id, conversationID == ticket.conversationID,
@@ -45,8 +47,19 @@ struct CloudChatSnapshot: Decodable, Sendable {
               content.utf8.count <= 800_000, reasoning.utf8.count <= 2_100_000,
               content.utf16.count + reasoning.utf16.count <= 200_000,
               status != "succeeded" || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CloudChatError.conflict }
+        if status == "succeeded" {
+            guard let completedAt, completedAt.isFinite, completedAt > 0, completedAt <= expiresAt else { throw CloudChatError.invalidResponse }
+        }
     }
     var terminal: Bool { ["succeeded", "failed", "cancelled"].contains(status) }
+    func completedTurn(for ticket: CloudChatTicket, cancelled: Bool, persistenceSucceeded: Bool) throws -> CompletedTurnSnapshot? {
+        try validate(for: ticket)
+        guard status == "succeeded", !cancelled, let completedAt else { return nil }
+        return CompletedTurnEligibility.snapshot(successfulCompletion: true, persistenceSucceeded: persistenceSucceeded,
+            conversationID: ticket.conversationID, userMessageID: ticket.userMessageID, userText: ticket.userText,
+            assistantMessageID: ticket.assistantMessageID, assistantText: content,
+            completedAt: Date(timeIntervalSince1970: completedAt / 1000))
+    }
 }
 
 /// Protected local outbox, not a chat/Memory model; no SwiftData schema change.
@@ -192,7 +205,12 @@ struct CloudChatModel: AgentModelStreaming {
                             continuation.yield(.content(String(decoding: snapshot.content.utf8.dropFirst(contentBytes), as: UTF8.self)))
                             contentBytes = snapshot.content.utf8.count
                         }
-                        if snapshot.status == "succeeded" { break }
+                        if snapshot.status == "succeeded" {
+                            var completed = frozen
+                            completed.serverCompletedAt = snapshot.completedAt.map { Date(timeIntervalSince1970: $0 / 1000) }
+                            try await outbox.put(completed)
+                            break
+                        }
                         try await Task.sleep(for: .seconds(2))
                         snapshot = try await api.call("GET")
                     }

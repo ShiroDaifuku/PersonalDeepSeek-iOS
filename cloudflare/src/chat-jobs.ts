@@ -54,7 +54,8 @@ async function row(env: ChatJobEnv, userId: string, id: string) {
 }
 function snapshot(r: ChatRow) {
   return { id:r.id, conversationID:r.conversation_id, userMessageID:r.user_message_id, assistantMessageID:r.assistant_message_id,
-    status:r.status, content:r.content, reasoning:r.reasoning, errorCode:r.error_code, expiresAt:r.expires_at };
+    status:r.status, content:r.content, reasoning:r.reasoning, errorCode:r.error_code, expiresAt:r.expires_at,
+    completedAt:['succeeded','failed','cancelled'].includes(r.status)?r.updated_at:null };
 }
 async function hash(text: string) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');

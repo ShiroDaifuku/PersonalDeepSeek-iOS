@@ -626,7 +626,11 @@ struct ChatView: View {
             }
             await LiveActivityManager.shared.finish(detail: assistant.content.isEmpty ? "生成已停止" : "回答已完成", success: !assistant.content.isEmpty)
             let persistenceSucceeded = finishGeneration()
-            if let cloudTicket, completedSuccessfully, persistenceSucceeded { try? await CloudChatOutbox.shared.remove(cloudTicket.id) }
+            let actualCompletion: Date?
+            if let cloudTicket {
+                actualCompletion = try? await CloudChatOutbox.shared.all().first(where: { $0.id == cloudTicket.id })?.serverCompletedAt
+            } else { actualCompletion = Date() }
+            if let cloudTicket, completedSuccessfully, persistenceSucceeded, actualCompletion != nil { try? await CloudChatOutbox.shared.remove(cloudTicket.id) }
             activeCloudID = nil
             if let cloudTicket, completedSuccessfully, persistenceSucceeded { pendingCloudConversations.remove(cloudTicket.conversationID) }
             if let cloudTicket, !completedSuccessfully,
@@ -635,14 +639,15 @@ struct ChatView: View {
                 try? await CloudChatOutbox.shared.remove(cloudTicket.id)
             }
             if cloudTicket != nil { Task { await recoverCloudChats() } }
-            if let turn = CompletedTurnEligibility.snapshot(
+            if let actualCompletion, let turn = CompletedTurnEligibility.snapshot(
                 successfulCompletion: completedSuccessfully,
                 persistenceSucceeded: persistenceSucceeded,
                 conversationID: conversation.id,
                 userMessageID: user.id,
                 userText: displayText,
                 assistantMessageID: assistant.id,
-                assistantText: assistant.content
+                assistantText: assistant.content,
+                completedAt: actualCompletion
             ) {
                 Task { _ = await memoryService.processCompletedTurn(turn) }
             }
@@ -709,9 +714,7 @@ struct ChatView: View {
                         let cancelled = try await CloudChatOutbox.shared.all().first(where: { $0.id == ticket.id })?.cancelRequested ?? ticket.cancelRequested
                         if result.status == "succeeded" && !cancelled {
                             recoveredCloudConversationID = conversation.id
-                            if let turn = CompletedTurnEligibility.snapshot(successfulCompletion: true, persistenceSucceeded: true,
-                                conversationID: conversation.id, userMessageID: user.id, userText: ticket.userText,
-                                assistantMessageID: assistant.id, assistantText: assistant.content) {
+                            if let turn = try result.completedTurn(for: ticket, cancelled: cancelled, persistenceSucceeded: true) {
                                 Task { _ = await memoryService.processCompletedTurn(turn) }
                             }
                         } else { errorText = cancelled ? "云端请求已取消；保留已收到内容，不计入长期记忆。" : "上次云端回答未完成：\(result.errorCode ?? result.status)；不会计入完整回答或长期记忆。" }
