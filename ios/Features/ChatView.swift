@@ -298,7 +298,9 @@ struct ChatView: View {
         let visibleText = displayText + (attachmentNames.isEmpty ? "" : "\n📎 " + attachmentNames.joined(separator: "、"))
         let user = ChatMessage(role: "user", content: visibleText, conversation: conversation), assistant = ChatMessage(role: "assistant", conversation: conversation)
         context.insert(user); context.insert(assistant)
-        do { try context.save() } catch { context.delete(user); context.delete(assistant); errorText = error.localizedDescription; return }
+        if cloudChatEnabled {
+            do { try context.save() } catch { context.delete(user); context.delete(assistant); errorText = error.localizedDescription; return }
+        } else { try? context.save() } // Preserve the existing direct-chat path.
         let cloudTicket: CloudChatTicket? = cloudChatEnabled ? .init(id: assistant.id, conversationID: conversation.id,
             userMessageID: user.id, assistantMessageID: assistant.id, userText: displayText,
             ownerID: userID, baseURL: cloudServiceURL, createdAt: Date()) : nil
