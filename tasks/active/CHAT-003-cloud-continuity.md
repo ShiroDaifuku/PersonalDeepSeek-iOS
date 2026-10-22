@@ -1,5 +1,7 @@
 # CHAT-003 — opt-in durable text answer continuity
 
+2026-10-23 update (supersedes the pre-deployment statements below): production additions explicitly approved and deployed. Worker3402aa81-dbeb-43a8-abcd-204701b9cbc5, migration0003 and new chat queue are live. Public provider, authentication, duplicate/collision and cancellation smoke passed; existing task endpoint200. Device acceptance remains pending. Full evidence: docs/CLOUD_CHAT_CONTINUITY.md. New companion-mode and later IPA authorized separately; not completed by this deployment.
+
 2026-10-21 user explicitly authorized beginning cloud continuation after math+avatar. Dedicated branch/worktree codex/cloud-chat-continuity / D:/daifuku/.worktrees/cloud-chat-continuity, parent math sourcececefad.
 
 Implemented: protected frozen local outbox before submission; dedicated D1 chat_jobs table and Queues consumer; pinned owner + existing bearer auth; atomic quotas/claim, fixed official provider, bounded SSE and 429 backoff; cancellation and recovery by original conversation/message IDs; same existing Memory eligibility with actual server completion time (not reopen time); opt-in consent/automatic eligible-text routing. Search/knowledge/scheduling/images/custom-model requests keep their original local path with a foreground notice. Math direct path unchanged; no false promise of tool or math-job durability.

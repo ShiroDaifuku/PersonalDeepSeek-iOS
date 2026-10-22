@@ -1,5 +1,11 @@
 # Current engineering state
 
+## 2026-10-23 — approved cloud production deployment
+
+Supersedes the earlier no-deployment gate below: user explicitly approved table/queue/deploy. Existing personal Worker version3402aa81-dbeb-43a8-abcd-204701b9cbc5 is live, additive0003 applied after D1 backup, dedicated chat queue created and existing owner pinned. Public real-provider completion, duplicate ID,401/403,409 collision and cancellation smoke passed; existing health/tasks200. Local TypeScript +14 Vitest +6 actual SQLite tests passed again. No secret replaced, old DB recreated, Memory algorithm changed or main/canonical merged. Real-device force-quit acceptance still pending. See docs/CLOUD_CHAT_CONTINUITY.md for precise scope, IDs and protected backup location.
+
+Parallel independent companion-mode development is authorized on codex/companion-chat. Latest user also explicitly permits an IPA after review and passing validation. This is permission, not a claim that the new IPA or companion test has completed. Deep Search remains paused.
+
 ## 2026-10-21 — math capture/avatar and opt-in cloud continuity
 
 MATH-002 `codex/math-capture-ui`: sourcececefad passed real macOS run39577682683: 400 ordinary tests (382 passed/18 skipped/0 failures), migration1/1 (0.680s). Photo selection now auto-transcribes statement, existing student work and separate reference solution; rendered single confirmation replaces mandatory editing/manual work entry. Protected per-problem capture sidecars preserve source photos; no existing Math/primary SwiftData schema or ordinary Memory change. AppIcon is the supplied red-haired avatar adaptation; in-app blue mascot videos unchanged.
