@@ -62,7 +62,8 @@ final class APIClient: Sendable, AgentModelStreaming {
     static func requestBody(_ input: AgentModelRequest, uploadedImages: [String: String] = [:]) throws -> Data {
         guard (1...3).contains(input.maximumAttempts),
               input.maxOutputTokens.map({ (1...393_216).contains($0) }) ?? true,
-              input.responseByteLimit.map({ (1...1_048_576).contains($0) }) ?? true else {
+              input.responseByteLimit.map({ (1...1_048_576).contains($0) }) ?? true,
+              input.temperature.map({ $0.isFinite && (0...2).contains($0) }) ?? true else {
             throw ClientError.invalidConfiguration
         }
         try AgentTranscriptValidator.validate(input.messages)
@@ -95,6 +96,7 @@ final class APIClient: Sendable, AgentModelStreaming {
             body["tool_choice"] = input.toolChoice.wireValue
         }
         if let maximum = input.maxOutputTokens { body["max_tokens"] = maximum }
+        if let temperature = input.temperature { body["temperature"] = temperature }
         let data = try JSONSerialization.data(withJSONObject: body)
         guard data.count <= maximumRequestBodyBytes else { throw ClientError.requestBodyTooLarge(data.count) }
         return data

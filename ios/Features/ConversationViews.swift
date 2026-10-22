@@ -3,7 +3,7 @@ import SwiftData
 
 struct ConversationSidebarView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
+    @Query(filter: #Predicate<Conversation> { $0.mode != "companion" }, sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @Binding var selection: Conversation?
     let isThinking: Bool
     let animationActive: Bool

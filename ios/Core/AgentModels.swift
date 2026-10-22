@@ -234,6 +234,8 @@ struct AgentModelRequest: Sendable {
     var maxOutputTokens: Int? = nil
     var maximumAttempts = 3
     var responseByteLimit: Int? = nil
+    /// Opt-in sampling override. Nil preserves the existing assistant wire request.
+    var temperature: Double? = nil
 }
 
 protocol AgentModelStreaming: Sendable {

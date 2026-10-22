@@ -16,7 +16,7 @@ struct ChatView: View {
     let toolExecutionService: ToolExecutionService
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
-    @Query(sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
+    @Query(filter: #Predicate<Conversation> { $0.mode != "companion" }, sort: \Conversation.createdAt, order: .reverse) private var conversations: [Conversation]
     @Query(sort: \LocalKnowledgeBase.createdAt) private var knowledgeBases: [LocalKnowledgeBase]
     @AppStorage("defaultModel") private var defaultModel = "deepseek-flash"
     @AppStorage("thinkingEnabled") private var thinking = true
