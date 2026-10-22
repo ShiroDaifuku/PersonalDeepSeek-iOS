@@ -90,12 +90,7 @@ struct CompanionChatView: View {
                         Text("在呢，主人。").foregroundStyle(.secondary).padding(.top, 36)
                     }
                     ForEach(orderedMessages) { message in
-                        if !message.content.isEmpty {
-                            let parts = message.role == "assistant" ? CompanionChatPolicy.segments(message.content) : [message.content]
-                            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                                bubble(part, user: message.role == "user")
-                            }
-                        }
+                        messageBubbles(message)
                     }
                     if model.isGenerating {
                         bubble(model.streamingText.isEmpty ? "…" : model.streamingText, user: false)
@@ -111,6 +106,16 @@ struct CompanionChatView: View {
 
     private var orderedMessages: [ChatMessage] {
         (model.current?.messages ?? []).sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt }
+    }
+
+    @ViewBuilder
+    private func messageBubbles(_ message: ChatMessage) -> some View {
+        if !message.content.isEmpty {
+            let parts = message.role == "assistant" ? CompanionChatPolicy.segments(message.content) : [message.content]
+            ForEach(parts.indices, id: \.self) { index in
+                bubble(parts[index], user: message.role == "user")
+            }
+        }
     }
 
     private func bubble(_ text: String, user: Bool) -> some View {
