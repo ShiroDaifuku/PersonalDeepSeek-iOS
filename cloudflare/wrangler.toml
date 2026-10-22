@@ -3,9 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
-# Cloud chat V1 is inactive until this owner is explicitly configured and migration 0003 applied.
+# Cloud chat V1 requires this explicit personal owner and migration 0003.
 # CHAT_USER_ID must equal the personal app's opaque user ID; never accept arbitrary client owners.
-# [vars] below intentionally does not preset CHAT_USER_ID.
+# The owner below was verified against the existing task and device registration.
 
 [triggers]
 crons = ["* * * * *"]
@@ -38,6 +38,7 @@ max_batch_timeout = 1
 max_retries = 0
 
 [vars]
+CHAT_USER_ID = "ios_213134F4B51F4489905FF36C66DF0DEE"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_TASK_MODEL = "deepseek-flash"
 DEFAULT_MODEL = "deepseek-flash"

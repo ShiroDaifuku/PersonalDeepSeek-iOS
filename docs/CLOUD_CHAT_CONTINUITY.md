@@ -1,5 +1,15 @@
 # Cloud Chat Continuity V1 — implementation and deployment gate
 
+## Production deployment update — 2026-10-23 Asia/Hong_Kong
+
+Explicit user approval received for the additive table, dedicated queue and deployment. Worker version `3402aa81-dbeb-43a8-abcd-204701b9cbc5` is deployed at the existing personal Worker URL. `personal-deepseek-chat-runs` was created; only pending migration `0003_chat_jobs.sql` was applied. Existing migrations 0001/0002, task queue, secrets and database were retained. The owner pin was verified against the sole existing task/device owner, not guessed from a request. Its non-secret identifier is configured in wrangler.toml.
+
+Before migration a remote D1 export was downloaded to ignored local `D:/daifuku/builds/cloud-deploy-20261023/pre-chat.sql` (4565 bytes). This backup contains personal data: do not commit or publish it. After deployment: tasks=1, task_runs=1, push_registrations=1, knowledge_bases=0, knowledge_chunks=0. Health and authenticated task-list endpoints returned 200. No existing rows were intentionally edited/deleted. This is not a claim of a byte-for-byte real-user-store restore test.
+
+Re-ran TypeScript check, Vitest 14/14 and actual SQLite tests 6/6 successfully before acceptance. Public live-provider smoke (no personal prompt/photo/phone key): capabilities enabled; missing authentication401, wrong owner403; submitted job `68653a05-8cd8-487a-9f54-a4850459ca05` completed with `CLOUD_OK`. Duplicate identical submission kept the same single row; terminal request_json was erased. Public cancellation job `991488ee-3fb9-4345-b7af-8b210b560748` remained cancelled after seven seconds; different payload with the same ID returned409. These two public test receipts remain under the existing bounded retention policy; production user tasks were not used as fixtures. At most two small public API generations were admitted; tests do not establish exactly-once provider billing.
+
+Still pending: real-device force-quit/reopen, App icon/camera acceptance and companion-mode acceptance after the newly authorized IPA. Pure-text ordinary chat only is durable; tools, attachments, mathematics and companion V1 remain local foreground work. The historical sections below describe the earlier pre-deployment gate and must not be read as the current remote status.
+
 Branch `codex/cloud-chat-continuity`, worktree `D:/daifuku/.worktrees/cloud-chat-continuity`, parent math/icon source `cecefad`. Includes the previously verified chat-quality fixes. No main/canonical merge or IPA is implied.
 
 ## Delivered scope
